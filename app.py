@@ -21,8 +21,11 @@ from services import DraftService
 from security import Security, AccessError
 from export_queue import ExportQueue, export_filename, PROTOCOL, RENDERER_VERSION, CHUNK_BYTES
 from uploads import Uploads
+from narration import Narration
+from mixing import render_mix
+from export_queue import file_hash
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 
 class Application:
@@ -36,6 +39,7 @@ class Application:
         self.security = Security(self.store) if remote else None
         self.queue = ExportQueue(self.store)
         self.uploads = Uploads(self.store)
+        self.narration = Narration(self.store)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="video-export")
         self.drafts = DraftService(self.store)
 
@@ -47,7 +51,7 @@ class Application:
         if not project.get("musicId"):
             raise ValidationError("Add your music-only track before exporting a video.")
         music = self.store.media(project["musicId"])
-        if music.get("purpose") == "reference":
+        if music.get("purpose") not in (None, "music"):
             raise ValidationError("Source recordings cannot be used as an export's music track.")
         normalized = normalize_project(project)
         offset = normalized["cueOffsetMs"]
@@ -61,12 +65,34 @@ class Application:
         if existing:
             return existing
         job = {"id": uid(), "projectId": project["id"], "projectName": project["name"], "revision": project["revision"],
-               "status": "queued", "progress": 0, "stage": "Waiting to render", "createdAt": now(), "error": None}
+               "status": "queued", "progress": 0, "stage": "Waiting to render", "createdAt": now(), "error": None,
+               "kind": "guide", "snapshot": json.loads(json.dumps(normalized))}
         self.store.put_job(job)
         # Immutable copies: edits made later do not change this job's inputs.
         self.executor.submit(self.run_render, json.loads(json.dumps(project)), dict(music), dict(job))
         return job
 
+    def final_render(self, session, revision):
+        job = self.queue.enqueue_final(session, revision)
+        if not self.remote:
+            self.executor.submit(self.run_local_finals)
+        return job
+
+    def run_local_finals(self):
+        while claim := self.queue.claim("local", PROTOCOL, RENDERER_VERSION):
+            try:
+                target = self.store.directory / "exports" / (claim["id"] + ".mp4")
+                def progress(value, stage):
+                    self.queue.heartbeat(claim["id"], "local", {"attempt": claim["attempt"], "progress": value, "stage": stage})
+                result = render_mix(self.queue.music(claim["id"], "local", claim["attempt"]),
+                    self.queue.voice(claim["id"], "local", claim["attempt"]), target, claim["mix"], progress)
+                result["sha256"] = file_hash(target)
+                with self.store.connection() as db:
+                    job = self.queue.checked(db, claim["id"], "local", claim["attempt"])
+                    job.update(status="complete", progress=100, stage="Ready to download", result=result, completedAt=now())
+                    self.queue._put(db, job)
+            except Exception as error:
+                self.queue.finish_attempt(claim["id"], "local", {"attempt": claim["attempt"], "error": str(error)})
     def run_render(self, project, music, job):
         def report(progress, stage):
             job.update(status="rendering", progress=round(progress, 1), stage=stage)
@@ -238,6 +264,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "worker": self.worker_identity})
         elif match := re.fullmatch(r"/api/worker/jobs/([a-z0-9]+)/music", route):
             self.send_file(self.application.queue.music(match[1], self.worker_identity["id"], self.headers.get("X-Render-Attempt", "")))
+        elif match := re.fullmatch(r"/api/worker/jobs/([a-z0-9]+)/voice", route):
+            self.send_file(self.application.queue.voice(match[1], self.worker_identity["id"], self.headers.get("X-Render-Attempt", "")))
+        elif route == "/api/recordings":
+            self.send_json(self.application.narration.pending(self.user["id"], parse_qs(url.query).get("sessionId", [None])[0]))
+        elif match := re.fullmatch(r"/api/recordings/([a-z0-9]+)", route):
+            self.send_json(self.application.narration.take(match[1], self.user["id"]))
+        elif match := re.fullmatch(r"/api/narration/([a-z0-9]+)", route):
+            self.send_json(self.application.narration.get(match[1]))
+        elif match := re.fullmatch(r"/api/narration/([a-z0-9]+)/master", route):
+            session = self.application.narration.get(match[1])
+            version = int(parse_qs(url.query).get("version", [session["timelineRevision"]])[0])
+            if not 1 <= version <= session["timelineRevision"]:
+                raise ValidationError("Choose an existing narration WAV version.")
+            requested = {**session, "timelineRevision": version}
+            if not self.application.narration.master_path(requested).is_file():
+                raise ConflictError("Prepare the current WAV master before downloading it.")
+            self.send_file(self.application.narration.master_path(requested),
+                "narration-" + session["id"][:8] + "-r" + str(version) + ".wav", "audio/wav")
         elif route == "/api/services":
             self.send_json(self.application.drafts.settings.public())
         elif route == "/api/drafts":
@@ -288,19 +332,20 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif route == "/api/jobs":
             self.send_json(self.application.queue.list(parse_qs(url.query).get("projectId", [None])[0]))
-        elif match := re.fullmatch(r"/api/jobs/([a-z0-9]+)/download", route):
+        elif match := re.fullmatch(r"/api/jobs/([a-z0-9]+)/(download|play)", route):
             job = next((j for j in self.store.jobs() if j["id"] == match[1]), None)
             if job is None:
                 raise KeyError("Export not found.")
             if job["status"] != "complete":
                 raise ValidationError("This export is not finished yet.")
             time_zone = parse_qs(url.query).get("timezone", ["UTC"])[0]
-            self.send_file(self.store.directory / "exports" / (job["id"] + ".mp4"), export_filename(job, time_zone))
+            self.send_file(self.store.directory / "exports" / (job["id"] + ".mp4"),
+                export_filename(job, time_zone) if match[2] == "download" else None, "video/mp4")
         elif match := re.fullmatch(r"/media/([a-z0-9]+)(/waveform\.png)?", route):
             media = self.store.media(match[1])
             target = media["storedName"] if not match[2] else media["id"] + "-waveform.png"
             self.send_file(self.store.directory / "media" / target, content_type=media.get("mime") if not match[2] else "image/png")
-        elif route in ("/", "/login", "/login.js", "/i18n.js", "/app.js", "/teleprompter.js", "/styles.css", "/favicon.ico", "/favicon.svg"):
+        elif route in ("/", "/login", "/login.js", "/i18n.js", "/app.js", "/teleprompter.js", "/recorder.js", "/recorder-worklet.js", "/narration.js", "/styles.css", "/favicon.ico", "/favicon.svg"):
             filename = "index.html" if route == "/" else "login.html" if route == "/login" else route[1:]
             if route == "/" and self.application.remote:
                 try:
@@ -320,6 +365,10 @@ class Handler(BaseHTTPRequestHandler):
         route = urlsplit(self.path).path
         if route.startswith("/api/worker/"):
             return self.worker_request(route)
+        if match := re.fullmatch(r"/api/recordings/([a-z0-9]+)/chunk", route):
+            self.send_json(self.application.narration.chunk(match[1], self.user["id"],
+                int(self.headers.get("X-Upload-Offset", -1)), self.read_chunk()))
+            return
         if match := re.fullmatch(r"/api/uploads/([a-z0-9]+)/chunk", route):
             self.send_json(self.application.uploads.chunk(self.user["id"], match[1], int(self.headers.get("X-Upload-Offset", -1)), self.read_chunk()))
             return
@@ -360,7 +409,26 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=waveform, daemon=True).start()
             return
         payload = self.read_json()
-        if route in ("/api/auth/setup", "/api/auth/login"):
+        if route == "/api/narration/open":
+            self.send_json(self.application.narration.open(str(payload.get("guideJobId", ""))))
+        elif match := re.fullmatch(r"/api/narration/([a-z0-9]+)/(take|undo|mix|master|render)", route):
+            identifier, action = match.groups()
+            service = self.application.narration
+            if action == "take":
+                result = service.start(identifier, self.user["id"], payload)
+            elif action == "undo":
+                result = service.undo(identifier, payload)
+            elif action == "mix":
+                result = service.save_mix(identifier, payload)
+            elif action == "master":
+                result = service.prepare_master(identifier, payload)
+            else:
+                result = self.application.final_render(service.get(identifier), payload.get("revision"))
+            self.send_json(result)
+        elif match := re.fullmatch(r"/api/recordings/([a-z0-9]+)/(finish|discard)", route):
+            result = self.application.narration.finish(match[1], self.user["id"], payload) if match[2] == "finish" else self.application.narration.discard(match[1], self.user["id"])
+            self.send_json(result)
+        elif route in ("/api/auth/setup", "/api/auth/login"):
             security = self.application.security
             if not security:
                 raise ValidationError("Sign-in is enabled only in server mode.")
@@ -395,7 +463,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(self.application.uploads.start(self.user["id"], payload), 201)
         elif match := re.fullmatch(r"/api/uploads/([a-z0-9]+)/finish", route):
             media = self.application.uploads.finish(self.user["id"], match[1])
-            self.waveform(media)
+            if media.get("purpose") != "enhanced":
+                self.waveform(media)
             self.send_json(media, 201)
         elif match := re.fullmatch(r"/api/jobs/([a-z0-9]+)/(retry|cancel)", route):
             self.send_json(self.application.queue.action(match[1], match[2]))
@@ -506,6 +575,7 @@ def main():
         server.server_close()
         application.executor.shutdown(wait=False, cancel_futures=True)
         application.drafts.executor.shutdown(wait=False, cancel_futures=True)
+        application.narration.executor.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from studio import ConflictError, ValidationError, make_frame, normalize_project, now, uid
 
 PROTOCOL = 1
-RENDERER_VERSION = "0.5.0"
+RENDERER_VERSION = "0.6.0"
 LEASE_SECONDS = 180
 CHUNK_BYTES = 4 * 1024 * 1024
 MAX_EXPORT_BYTES = 32 * 1024 ** 3
@@ -27,7 +27,7 @@ def file_hash(path):
 
 
 def public_job(job):
-    return {key: value for key, value in job.items() if key not in ("snapshot", "music", "attempt", "workerId", "leaseUntil", "upload", "claimId")}
+    return {key: value for key, value in job.items() if key not in ("snapshot", "music", "voice", "mix", "attempt", "workerId", "leaseUntil", "upload", "claimId")}
 
 
 def export_filename(job, time_zone="UTC"):
@@ -48,7 +48,8 @@ def export_filename(job, time_zone="UTC"):
     name = re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]+', "-", str(job.get("projectName") or "Session")).strip(" .")
     name = name.encode("utf-8")[:120].decode("utf-8", errors="ignore").rstrip(" .") or "Session"
     identifier = re.sub(r"[^a-zA-Z0-9]", "", str(job["id"]))[:8]
-    return f"{name}_r{job['revision']}_{stamp}_{identifier}.mp4"
+    variant = "_final" if job.get("kind") == "final" else ""
+    return f"{name}{variant}_r{job['revision']}_{stamp}_{identifier}.mp4"
 
 
 class ExportQueue:
@@ -76,7 +77,7 @@ class ExportQueue:
             raise ValidationError("Add your music-only track and at least one Slovak prompt first.")
         music = self.store.media(project["musicId"])
         path = self.store.directory / "media" / music["storedName"]
-        if music.get("purpose") == "reference":
+        if music.get("purpose") not in (None, "music"):
             raise ValidationError("Use the separate music-only track for export.")
         if not path.is_file():
             raise ValidationError("The music file is missing. Upload it again.")
@@ -99,7 +100,7 @@ class ExportQueue:
         snapshot = {key: copy.deepcopy(project[key]) for key in ("id", "name", "revision", "segments", "cueOffsetMs", "style")}
         job = {"id": uid(), "projectId": project["id"], "projectName": project["name"], "revision": revision,
                "status": "queued", "progress": 0, "stage": "Queued — waiting for renderer", "createdAt": now(),
-               "error": None, "protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "snapshot": snapshot, "music": music}
+               "error": None, "kind": "guide", "protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "snapshot": snapshot, "music": music}
         with self.store.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             # Serialize double clicks, separate editor tabs and saves during preflight.
@@ -109,6 +110,44 @@ class ExportQueue:
             for previous in (json.loads(r[0]) for r in db.execute("SELECT payload FROM jobs")):
                 if previous["projectId"] == project["id"] and previous["status"] in ("queued", "rendering"):
                     return public_job(previous)
+            self._put(db, job)
+        return public_job(job)
+
+    def enqueue_final(self, session, revision):
+        if session["revision"] != revision:
+            raise ConflictError("Save the narration mix settings before sending the final export.")
+        if not session.get("enhancedIsCurrent") or not session.get("alignmentConfirmed"):
+            raise ValidationError("Attach current enhanced narration and confirm its timing before final export.")
+        guide = next((j for j in self.store.jobs() if j["id"] == session["guideJobId"]), None)
+        video = self.store.directory / "exports" / (session["guideJobId"] + ".mp4")
+        if not guide or guide["status"] != "complete" or guide.get("kind") == "final" or not video.is_file():
+            raise ValidationError("The guide video is missing. Render it again before final export.")
+        voice = self.store.media(session["enhancedMediaId"])
+        voice_path = self.store.directory / "media" / voice["storedName"]
+        if voice.get("purpose") != "enhanced" or not voice_path.is_file():
+            raise ValidationError("Upload the Adobe-enhanced narration as enhanced audio.")
+        source = {"id": guide["id"], "name": guide["projectName"] + ".mp4", "storedName": video.name,
+                  "bytes": video.stat().st_size, "sha256": file_hash(video), "durationMs": session["durationMs"]}
+        voice = {**voice, "sha256": voice.get("sha256") or file_hash(voice_path)}
+        snapshot = copy.deepcopy(guide.get("snapshot") or {"name": guide["projectName"], "revision": guide["revision"]})
+        mix = {key: session[key] for key in ("voiceOffsetMs", "musicVolume", "voiceVolume")}
+        job = {"id": uid(), "kind": "final", "projectId": session["projectId"], "projectName": guide["projectName"],
+               "revision": guide["revision"], "narrationId": session["id"], "narrationRevision": session["timelineRevision"],
+               "guideJobId": guide["id"], "status": "queued", "progress": 0, "stage": "Queued — waiting for renderer",
+               "createdAt": now(), "error": None, "protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION,
+               "snapshot": snapshot, "music": source, "voice": voice, "mix": mix}
+        with self.store.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM narrations WHERE id=?", (session["id"],)).fetchone()
+            if not row or json.loads(row[0])["revision"] != revision:
+                raise ConflictError("Narration changed while checking the final export. Save and try again.")
+            for previous in (json.loads(r[0]) for r in db.execute("SELECT payload FROM jobs")):
+                if previous["projectId"] == session["projectId"] and previous["status"] in ("queued", "rendering"):
+                    if previous.get("kind") == "final" and previous.get("narrationId") == session["id"]:
+                        if previous.get("voice", {}).get("sha256") == voice["sha256"] and previous.get("mix") == mix and previous.get("narrationRevision") == session["timelineRevision"]:
+                            return public_job(previous)
+                        raise ConflictError("A different final mix is active. Cancel it in Exports before sending changed settings.")
+                    raise ConflictError("This session already has an active export.")
             self._put(db, job)
         return public_job(job)
 
@@ -155,6 +194,7 @@ class ExportQueue:
     @staticmethod
     def claim_payload(job):
         return {"id": job["id"], "attempt": job["attempt"], "project": job["snapshot"], "music": job["music"],
+                "kind": job.get("kind", "guide"), "voice": job.get("voice"), "mix": job.get("mix"),
                 "leaseSeconds": LEASE_SECONDS, "chunkBytes": CHUNK_BYTES}
 
     def checked(self, db, job_id, worker_id, attempt, complete_ok=False):
@@ -181,7 +221,14 @@ class ExportQueue:
     def music(self, job_id, worker_id, attempt):
         with self.store.connection() as db:
             job = self.checked(db, job_id, worker_id, attempt)
-        return self.store.directory / "media" / job["music"]["storedName"]
+        return self.store.directory / ("exports" if job.get("kind") == "final" else "media") / job["music"]["storedName"]
+
+    def voice(self, job_id, worker_id, attempt):
+        with self.store.connection() as db:
+            job = self.checked(db, job_id, worker_id, attempt)
+        if job.get("kind") != "final" or not job.get("voice"):
+            raise KeyError("This export has no narration audio.")
+        return self.store.directory / "media" / job["voice"]["storedName"]
 
     def finish_attempt(self, job_id, worker_id, payload, release=False):
         with self.store.connection() as db:

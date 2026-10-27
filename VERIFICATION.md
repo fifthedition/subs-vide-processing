@@ -1,39 +1,38 @@
-# Verification — 0.5.0
+# Verification — 0.6.0
 
-Local verification uses macOS, Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. GitHub Actions repeats the tests on Linux, builds the image, and checks an empty protected container. CI results are recorded in the pull request.
+Local checks use macOS, Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. GitHub Actions repeats the suite on Linux, builds the public image, and checks first boot and authenticated empty defaults. CI results are recorded in the pull request.
 
-## Interface
+## Results
 
-Six DOM integration tests exercise the real HTML and JavaScript with synthetic API fixtures:
+- 37 Python tests, with the optional private archive regression skipped when its archive is absent.
+- 13 JavaScript DOM/audio-worklet/storage tests.
+- JavaScript/Python syntax and Git diff checks.
+- All fixtures are synthetic and isolated from the actual NAS and Keychain.
 
-- Slovak default, English preference, static labels, placeholders, accessible names, export stages and validation messages.
-- Repeated SK/EN switches with dirty subtitle edits and an unfinished invalid time; no project mutation, save request, lost selection or audio reload.
-- Session names, source/reference text, music names, usernames and entered API keys stay intact.
-- Settings and account dialogs, empty-workspace import, sign-in and first-owner setup.
-- SVG favicon and the Full HD output control.
+The original import/editing, account/CSRF/role, provider mocks, resumable upload, immutable queue/recovery and guide-render checks remain in place. No paid provider request is made.
 
-JavaScript syntax checks include the shared translation module. These are DOM tests, not a real-browser visual or playback test; the responsive layout and fullscreen still need a deployed browser check.
+## Narration
 
-## Rendering and queue
+Tests cover:
 
-Thirty Python tests cover editing, imports, persistence, revision conflicts, account/CSRF/role boundaries, provider mocks, resumable uploads and durable claims/recovery. One private archive regression is intentionally skipped without the private archive.
+- Private chunked 24-bit mono PCM upload, account scope, repeated/mismatched chunks, exact byte count, restart recovery and idempotent finish.
+- Non-destructive punch-in: old left/right portions retain their source sample offsets, silence remains in place, and undo restores the earlier timeline.
+- A full-duration 48 kHz/24-bit WAV master, including gaps; 44.1 kHz browser input is resampled without changing its timeline.
+- Conflict handling retains audio. Retakes invalidate enhanced audio; saving levels cannot silently make an older enhancement current.
+- Final jobs freeze the guide subtitle revision, enhanced-audio hash, offset and levels. Changed settings cannot replace an already queued snapshot.
+- A real HTTP editor recording → private WAV master → enhanced upload → final queue → native Mac worker → chunked upload → authenticated final MP4 download round trip.
+- Final mixing copies video packet hashes unchanged, retains independent left/right music, places mono voice in both channels, applies its offset and preserves video duration.
+- Browser PCM encoding/clamping, pause flush, silent microphone output, actual sample-rate settings and processing constraints.
+- Permission denial and an independent mic test that never creates a narration or uploads its audio.
+- IndexedDB persistence across recorder instances, removal of acknowledged chunks and in-memory retention when a storage write fails.
+- Pause/resume, language switching during capture, network failure/retry, buffering and playback-speed interruptions.
 
-Real FFmpeg tests verify:
+## Browser and deployment acceptance
 
-- New output is 1920 × 1080 H.264 with two audio channels, including legacy 720p projects and mono sources.
-- 44.1 kHz stereo is retained, and independent 440/880 Hz tones stay in the correct left/right channels.
-- Stereo AAC source and MP4 output have identical audio packet hashes.
-- Mono is duplicated at its original level into both channels.
-- Fixed previous/current/next areas, timers, countdowns, gaps and offset boundaries match decoded frames at Full HD.
-- The supplied music remains the sole audible source.
-- A real eight-second HTTP queue → Mac worker → FFmpeg → upload → download round trip completes, then the foreground worker exits on an empty queue.
-- Export download names retain dates, saved revisions, timezone offsets and IDs; range downloads work.
-- Favicon and translations are available before sign-in while project APIs remain protected.
+The implementation uses standard APIs available in current desktop Chrome, Safari and Firefox: getUserMedia, AudioWorklet, Web Audio, IndexedDB, WAV and native video. Sources checked include [MDN microphone permissions](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia), [AudioWorkletNode](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode), [device enumeration](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/enumerateDevices) and [reported track settings](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/getSettings).
 
-No paid provider request or full-length render benchmark was performed. Automated tests use isolated synthetic data and never modify the NAS, the existing private archive, service keys or Mac Keychain. Public Docker copies use the existing source allowlist; data, subtitles, music, databases and credentials stay excluded.
+DOM/worklet fixtures exercise the application code; physical microphone permissions, browser real-time clocks, hardware playback and the visual layout need an actual-device check in each browser. No hour-long microphone benchmark or live Adobe processing was performed.
 
-## Deployment
+Update NAS and Mac code together to **0.6.0**. Retain the current private data volume and existing renderer pairing. Completed Full HD guides remain usable; older queued jobs must be cancelled/resubmitted after upgrading (or drained before the upgrade). First verify a short take, pause/resume, a replacement range, WAV download, enhanced upload and final mix; then test a complete session.
 
-Update the NAS image and Mac checkout together to 0.5.0; existing accounts, private data and renderer pairing remain valid. Drain the previous queue first, or cancel and send older queued exports again afterward. Retain the current NAS data volume. Existing completed exports are unchanged.
-
-The NAS was already running 0.4.1 with working HTTPS, owner/editor accounts and a paired Mac render round trip. This release's browser appearance, full-length music and large proxy transfers need a check after the image update.
+The public image uses explicit code/static copies and the existing context allowlist. Original subtitles, databases, microphone audio, masters, enhanced files, exports, API keys and worker credentials are runtime private data, never image or source contents. Automated tests do not alter the deployed NAS, proxy or user Keychain.

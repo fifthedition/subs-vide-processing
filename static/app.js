@@ -99,6 +99,7 @@ async function loadReference() {
   state.reference = doc.segments.map(s => ({startMs:parseClock(s.from_time), endMs:parseClock(s.to_time), text:s.text}));
 }
 async function loadProject(id) {
+  if(window.NarrationStudio?.isRecording()){toast(t('Pause and save the current recording first.'),true);return;}
   try {
     await flushSave(); audio.pause(); $('referenceAudio').pause();
     state.project = await api('/api/projects/' + id); state.previewMs = 0; state.selected = state.project.segments[0]?.id;
@@ -287,13 +288,15 @@ async function loadJobs() {
   if (!state.project) return;
   const projectId=state.project.id;
   try { const jobs=await api('/api/jobs?projectId='+projectId); if(state.project.id!==projectId)return; state.jobs=jobs;
-    $('jobList').innerHTML=jobs.length?jobs.slice(0,5).map(j=>{
+    const visibleJobs=jobs.slice(0,5),latestGuide=jobs.find(job=>job.status==='complete'&&job.kind!=='final');
+    if(latestGuide&&!visibleJobs.some(job=>job.id===latestGuide.id))visibleJobs.push(latestGuide);
+    $('jobList').innerHTML=visibleJobs.length?visibleJobs.map(j=>{
       const completed=j.status==='complete',timestamp=completed?(j.completedAt||j.createdAt):j.createdAt;
-      return `<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${completed?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><div class="job-meta"><small>Saved revision ${j.revision}</small><small>${completed?t('Exported'):t('Requested')} ${escapeHTML(formatExportTime(timestamp))}</small></div>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${completed?`<div><a href="${exportDownloadUrl(j.id)}">Download MP4 ↗</a></div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`;
+      return `<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${completed?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><div class="job-meta"><small>${j.kind==='final'?'Final mix · ':''}Saved revision ${j.revision}</small><small>${completed?t('Exported'):t('Requested')} ${escapeHTML(formatExportTime(timestamp))}</small></div>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${completed?`<div class="export-actions"><button class="button outline" data-watch="${j.id}">Play video</button><a href="${exportDownloadUrl(j.id)}">Download MP4 ↗</a>${j.kind!=='final'?`<button class="button outline" data-narrate="${j.id}">Open narration studio</button>`:''}</div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`;
     }).join(''):'<p class="empty-exports">Your finished videos will appear here.<br>Only your music and visible prompts are included.</p>';
     I18n.apply($('jobList'));
     const busy=jobs.some(j=>j.status==='queued'||j.status==='rendering'),queued=jobs.some(j=>j.status==='queued'); $('exportVideo').disabled=busy||!state.project; $('exportVideo').textContent=busy?(queued?t('Queued for export'):t('Rendering…')):(state.auth?.remote?t('↗ Send for export'):t('↗ Export MP4'));
-    $('jobList').querySelectorAll('.job').forEach((element,index)=>{const job=jobs[index];if(!job)return;const action=job.status==='failed'&&job.protocol?'retry':job.status==='queued'&&job.protocol?'cancel':null;if(action){const button=document.createElement('button');button.className='text-button';button.textContent=action==='retry'?t('Retry this export'):t('Cancel queued export');button.onclick=async()=>{try{await api('/api/jobs/'+job.id+'/'+action,{method:'POST',body:{}});await loadJobs();}catch(error){toast(error.message,true);}};element.append(button);}});
+    $('jobList').querySelectorAll('.job').forEach((element,index)=>{const job=visibleJobs[index];if(!job)return;const action=job.status==='failed'&&job.protocol?'retry':job.status==='queued'&&job.protocol?'cancel':null;if(action){const button=document.createElement('button');button.className='text-button';button.textContent=action==='retry'?t('Retry this export'):t('Cancel queued export');button.onclick=async()=>{try{await api('/api/jobs/'+job.id+'/'+action,{method:'POST',body:{}});await loadJobs();}catch(error){toast(error.message,true);}};element.append(button);}});
   } catch {}
 }
 async function openServices() {
@@ -464,8 +467,11 @@ document.addEventListener('languagechange',()=>{
 async function start() {
   for(const id of ['musicName','nextText','workspaceLabel','sessionDescription'])$(id).setAttribute('data-user-text','');
   bindEvents();
+  window.NarrationStudio?.init({api,uploadFile,toast,clock,parseClock,auth:()=>state.auth,jobsChanged:loadJobs,
+    pauseEditorAudio:()=>{audio.pause();$('referenceAudio').pause();}});
   try {
     const meResponse=await fetch('/api/auth/me');if(meResponse.status===401){location.replace('/login');return;}if(!meResponse.ok)throw new Error(t('Could not load your account.'));state.auth=await meResponse.json();
+    window.NarrationStudio?.authReady();
     $('workspaceLabel').textContent=state.auth.remote?state.auth.username:t('Local workspace');$('workspaceNote').textContent=state.auth.remote?t('Saved on your NAS · render on demand'):t('Editing and rendering on this computer');$('openAdmin').hidden=!state.auth.remote||state.auth.role!=='owner';$('signOut').hidden=!state.auth.remote;
     const [projects,catalog,health]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/health')]);state.projects=projects;state.catalog=catalog;
     if(!health.ready)showValidation(t('FFmpeg is not available yet. Editing works; install FFmpeg before adding music or exporting.'));

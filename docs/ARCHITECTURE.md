@@ -13,7 +13,7 @@ The browser talks to the NAS HTTPS hostname through Nginx Proxy Manager. The NAS
 - Completed uploads are checked for declared size, SHA-256, audio/video streams, duration, 1920 × 1080 dimensions and two audio channels before the final MP4 is made downloadable. Completion is idempotent.
 - Normal shutdown/Control-C releases the job. A crash relies on lease expiry. A worker failure records an error and moves on to later queued jobs. There is no automatic paid provider retry.
 
-The app and renderer compatibility versions are 0.5.0; protocol is 1. App and renderer versions remain separate so future interface-only updates can use paired existing workers. Update both ends for this release's new audio/video behavior; Keychain tokens remain valid. Drain the old queue before upgrading, or cancel and resubmit queued jobs. Old queue entries from local-only versions cannot be rendered remotely because their in-memory snapshots were never persisted; their old downloadable completed exports remain available.
+The app and renderer compatibility versions are 0.6.0; protocol is 1. App and renderer versions remain separate so future interface-only updates can use paired existing workers. Update both ends for this release's new audio/video behavior; Keychain tokens remain valid. Drain the old queue before upgrading, or cancel and resubmit queued jobs. Old queue entries from local-only versions cannot be rendered remotely because their in-memory snapshots were never persisted; their old downloadable completed exports remain available.
 
 The renderer produces Full HD H.264 at CRF 16. Stereo AAC uses packet copy; other sources use AAC at a 320 kb/s target and a source-compatible sample rate. Stereo channels are not mixed together. Mono duplicates at unity gain; multichannel sources use FFmpeg's stereo downmix. Browser language is a local preference and is excluded from export snapshots; the video remains Slovak.
 
@@ -36,3 +36,9 @@ SQLite uses bounded connections and transactions on the NAS's local volume, not 
 Back up the private data folder while the container is stopped, including the database, `subtitles.json`, media, transcripts, exports and provider settings. The supplied migration helper makes a new private folder and uses SQLite's backup API. Stop local editing first so copied media and the database represent a consistent session state.
 
 No renderer daemon, queue broker, Redis, third-party storage service, email notification, webhook or remote Mac shell is required. Editor-to-owner communication is manual as requested.
+
+## Narration and final mixes
+
+Narration sessions pin a completed Full HD guide job and its frozen cues. PCM takes use authenticated, creator-scoped resumable chunk endpoints and private SQLite metadata; completed takes become shared workspace media. Browser IndexedDB stores only pending PCM chunks, not an hour-long in-memory recording. Finalization checks byte count and optimistic narration revision, then atomically replaces the recorded timeline range while retaining source files and undo history.
+
+The NAS assembles a full-timeline 48 kHz/24-bit mono WAV, including silence. Enhanced uploads are explicitly associated with a timeline version. Retakes invalidate earlier enhancement; changing levels cannot silently make it current again. Timing confirmation is required before final submission. Each final queue snapshot pins the guide hash, enhanced-audio hash, offset and levels. Assigned worker tokens can download only their guide/music and voice assets. The manual Mac worker copies H.264 video and encodes the mixed stereo audio. Neither subtitle edits nor later mix changes alter an existing job.

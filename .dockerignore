@@ -8,5 +8,7 @@
 !uploads.py
 !teleprompter.py
 !manage.py
+!narration.py
+!mixing.py
 !static/
 !static/**

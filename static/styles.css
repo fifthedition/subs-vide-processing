@@ -289,3 +289,39 @@ dialog{padding:20px}
 .toast{width:90vw;max-width:90vw}
 .ready-badge{font-size:9px}
 }
+
+/* Narration uses the same contrast, type and focus treatment as the editor. */
+.export-actions,.mic-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.export-actions .button{font-size:13px}.export-actions a{margin:0}
+.mic-dialog{width:740px}.mic-dialog audio{width:100%}
+.gain-control{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.gain-control input[type=range]{accent-color:var(--blue);flex:1;min-width:130px}
+.gain-control output{font-variant-numeric:tabular-nums;min-width:48px}
+.mic-meter{height:22px;border:1px solid var(--field);background:#e6edf8;border-radius:5px;overflow:hidden}
+.mic-meter i{display:block;height:100%;width:0;background:#126f37}
+.mic-meter.clipping i{background:#b0232e}
+.mic-meter.compact{margin:12px 0 6px;height:14px}
+.mic-level-readout{display:flex;gap:16px;justify-content:space-between;font-size:13px;color:#334155;flex-wrap:wrap}
+.mic-level-readout strong{font-weight:650}
+#micConnection,#narrationStatus{font-size:15px;font-weight:650;color:#123c8f}
+.watch-dialog{width:min(1200px,94vw)}.watch-dialog video{display:block;width:100%;max-height:74vh;background:#000;margin-top:15px}
+.narration-dialog{width:min(1320px,96vw);max-height:94vh;padding:24px}
+.narration-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(290px,1fr);gap:24px;margin-top:18px}
+.narration-player-column{min-width:0}.narration-player-column>video{width:100%;max-height:58vh;background:#000;display:block;border-radius:5px}
+.narration-clock{display:flex;gap:16px;justify-content:space-between;margin:10px 0;font-size:13px;color:#334155}
+.narration-clock strong{font-size:18px;display:inline-block;margin-left:5px;font-variant-numeric:tabular-nums;color:#111827}
+.narration-section{padding:18px;border:1px solid var(--line);border-radius:7px;background:#fff;margin:18px 0}
+.narration-section h3{font-size:18px;margin:0 0 12px;line-height:1.4}
+.narration-section p{font-size:14px;color:#334155;line-height:1.7}
+.narration-section label,.narration-range label,.narration-select{display:grid;gap:8px;font-size:14px;font-weight:550;color:#334155;margin:14px 0}
+.narration-section input[type=number],.narration-section input[type=file],.narration-section select,.narration-range input,.narration-select select{border:1px solid var(--field);border-radius:5px;background:#fff;padding:10px;width:100%;min-width:0;font:inherit;color:#111827}
+.narration-section input[type=file]{font-size:13px}
+.narration-section .check-row{display:flex;align-items:flex-start;gap:10px;line-height:1.6}
+.check-row input[type=checkbox]{flex-shrink:0;margin-top:3px}
+.narration-range{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.narration-range input{font-family:ui-monospace,monospace;font-size:13px}
+.narration-clip{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:10px 0;font-size:12px;font-variant-numeric:tabular-nums}
+.recording-recovery{margin-top:14px;padding:14px;background:#fff8e4;border:1px solid #a87d29;border-radius:6px;font-size:14px}
+.narration-mix-column .button{width:100%;margin-top:12px}
+#enhancedName{overflow-wrap:anywhere}
+@media(max-width:950px){.narration-layout{grid-template-columns:1fr}.narration-dialog{padding:18px}.narration-player-column>video{max-height:60vh}.narration-range{gap:10px}}

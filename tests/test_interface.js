@@ -148,8 +148,12 @@ test('all static interface copy has a Slovak translation; favicon and 1080p cont
   for(const name of ['index.html','login.html']){
     const dom=new JSDOM(read(name),{url:'https://studio.example',runScripts:'outside-only'}),w=dom.window;
     try{
+      const originals=[],sourceWalker=w.document.createTreeWalker(w.document,w.NodeFilter.SHOW_TEXT);let textNode;
+      while((textNode=sourceWalker.nextNode()))if(!textNode.parentElement?.closest('script,style'))originals.push(textNode.textContent.trim());
+      for(const element of w.document.querySelectorAll('[aria-label],[title],[placeholder]'))for(const attribute of ['aria-label','title','placeholder'])if(element.hasAttribute(attribute))originals.push(element.getAttribute(attribute));
       w.eval(read('i18n.js')+'\nwindow.i18n=I18n;');
       const exempt=/^(?:Breathwork Studio|BREATHWORK STUDIO|Breathwork|Studio|SK|EN|VTT ↗|Full HD · 1080p|[\d\W]+)$/u;
+      assert.deepEqual(originals.filter(text=>/[A-Za-z]/.test(text)&&!exempt.test(text)&&!['0 dB','−60 dBFS'].includes(text)&&!Object.hasOwn(w.i18n.dictionary,text)),[]);
       const walker=w.document.createTreeWalker(w.document,w.NodeFilter.SHOW_TEXT);let node;
       const missing=[];
       while((node=walker.nextNode())){

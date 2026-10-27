@@ -223,6 +223,7 @@ class HTTPWorkerTests(unittest.TestCase):
         self.thread.join()
         self.app.executor.shutdown(wait=True)
         self.app.drafts.executor.shutdown(wait=True)
+        self.app.narration.executor.shutdown(wait=True)
         self.temp.cleanup()
 
     def request(self, route, body=None, headers=None):

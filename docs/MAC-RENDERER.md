@@ -5,7 +5,7 @@ The Mac initiates HTTPS connections to the NAS. There is no inbound Mac server, 
 ## Pair once
 
 1. Install Python 3.11+ and FFmpeg (`brew install ffmpeg` if using Homebrew).
-2. Keep a checkout/download of this repository on the Mac, matching the NAS renderer compatibility version. App 0.5.0 requires renderer 0.5.0 for Full HD and stereo audio preservation. Updating the code does not require a new token or pairing.
+2. Keep a checkout/download of this repository on the Mac, matching the NAS renderer compatibility version. App 0.6.0 requires renderer 0.6.0 for guide and final narration exports. Updating the code does not require a new token or pairing.
 3. Sign in to the NAS app as owner. Open **People & Mac renderers**, enter a name, and create a renderer token. Copy it while shown; the app stores only its hash.
 4. Double-click **Configure-Mac-Renderer.command** in Finder. It prepares the Python environment, asks for the app HTTPS address and prompts for the token without showing typed characters. It checks the connection and stores the token in macOS Keychain. The token is sent over stdin to the Keychain tool, not placed in process arguments or a shell history command.
 
@@ -22,6 +22,8 @@ Terminal shows the session/revision and download/render/upload progress. The wor
 Press **Control-C** to stop. The worker terminates its FFmpeg process and tries to return unfinished work to the queue. Terminal-close/termination signals also trigger cleanup. If the Mac loses power or the network before it can release a claim, that claim expires after three minutes and the NAS returns the job to the queue. Start the worker again afterward. No video rendering resumes by itself.
 
 A failed job does not block later queued jobs. It appears as failed in the app; fix the problem and click **Retry this export**, or edit the project and send a new export. Retry uses that original frozen subtitle revision. A new submission uses the newly saved revision. Only one active export per session is allowed; cancel a queued export before submitting a replacement.
+
+The same launcher processes both music/subtitle guide jobs and final narration mixes. A final mix downloads the existing guide MP4 plus the enhanced voice, copies the video stream and mixes the audio. No separate Mac app or permanent process is added. See [NARRATION.md](NARRATION.md).
 
 ## Storage and connectivity
 
