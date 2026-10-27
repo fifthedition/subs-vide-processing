@@ -280,8 +280,9 @@ class Handler(BaseHTTPRequestHandler):
             requested = {**session, "timelineRevision": version}
             if not self.application.narration.master_path(requested).is_file():
                 raise ConflictError("Prepare the current WAV master before downloading it.")
+            filename = "narration-" + session["id"][:8] + "-r" + str(version) + ".wav"
             self.send_file(self.application.narration.master_path(requested),
-                "narration-" + session["id"][:8] + "-r" + str(version) + ".wav", "audio/wav")
+                None if parse_qs(url.query).get("play") == ["1"] else filename, "audio/wav")
         elif route == "/api/services":
             self.send_json(self.application.drafts.settings.public())
         elif route == "/api/drafts":

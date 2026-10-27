@@ -58,6 +58,11 @@ test('Slovak is default; static labels, accessible names and dynamic exports tra
     assert.match(w.document.getElementById('jobList').textContent,/Uložená verzia 5/);
     assert.match(w.document.getElementById('jobList').textContent,/Stiahnuť MP4/);
     assert.equal(w.document.getElementById('remainingTime').textContent,'00:08');
+    let editorPlay=0;w.document.getElementById('audio').play=()=>{editorPlay++;return Promise.resolve();};
+    w.document.getElementById('watchDialog').open=true;
+    w.document.getElementById('watchVideo').dispatchEvent(new w.KeyboardEvent('keydown',{code:'Space',bubbles:true}));
+    assert.equal(editorPlay,0,'Video player shortcuts must not start the editor music');
+    w.document.getElementById('watchDialog').open=false;
     assert.equal(w.i18n.t('Cues 3 and 4 overlap. Adjust their times.'),'Texty 3 a 4 sa prekrývajú. Upravte ich časy.');
     assert.equal(w.i18n.t('That file could not be read as audio.'),'Súbor sa nepodarilo prečítať ako zvuk.');
   }finally{dom.window.close();}

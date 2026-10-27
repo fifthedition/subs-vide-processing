@@ -157,7 +157,7 @@ window.NarrationStudio = (() => {
     if(signature===guideSignature){$('narrationGuide').value=session.guideJobId;return;}
     guideSignature=signature;
     $('narrationGuide').innerHTML=jobs.map(job=>'<option data-user-text value="'+escape(job.id)+'">'+escape(t('Rendered revision {revision}',{revision:job.revision})+
-      (job.createdAt?' · '+new Date(job.completedAt||job.createdAt).toLocaleString(I18n.locale,{dateStyle:'medium',timeStyle:'short'}):''))+'</option>').join('');
+      (job.createdAt?' · '+new Date(job.completedAt||job.createdAt).toLocaleString(I18n.locale,{dateStyle:'medium',timeStyle:'medium'}):''))+'</option>').join('');
     $('narrationGuide').value=session.guideJobId;
   }
   async function flush(item){
@@ -246,7 +246,7 @@ window.NarrationStudio = (() => {
     if(!session)return;
     video().volume=Number($('mixMusic').value)/100;voice().volume=Number($('mixVoice').value)/100;
     const choice=$('narrationListen').value;
-    let source=choice==='raw'&&session.master.status==='ready'?'/api/narration/'+session.id+'/master?version='+session.timelineRevision:
+    let source=choice==='raw'&&session.master.status==='ready'?'/api/narration/'+session.id+'/master?version='+session.timelineRevision+'&play=1':
       choice==='enhanced'&&session.enhanced?'/media/'+session.enhanced.id:'';
     if(recording)source='';
     if(voice().getAttribute('src')!==source){

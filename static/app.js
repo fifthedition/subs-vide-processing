@@ -397,7 +397,7 @@ function bindEvents() {
   audio.onplay=()=>requestAnimationFrame(playLoop);audio.onpause=tick;audio.ontimeupdate=tick;audio.onended=tick;audio.onloadedmetadata=()=>{if(state.previewMs)audio.currentTime=state.previewMs/1000;tick();};
   audio.onerror=()=>{if(state.project?.music)toast(t('This browser could not play the music. MP3 and M4A have the widest support.'),true);};
   $('presenter').onclick=async()=>{try{await $('previewStage').requestFullscreen();}catch{toast(t('Fullscreen is unavailable in this browser.'),true);}};$('exitPresenter').onclick=()=>document.exitFullscreen();
-  document.addEventListener('keydown', event=>{if(event.code==='Space'&&!event.target.matches('input,textarea,select,button')){event.preventDefault();togglePlay();}if(document.fullscreenElement&&event.code==='ArrowRight'){seekTo(currentMs()+5000);}if(document.fullscreenElement&&event.code==='ArrowLeft'){seekTo(currentMs()-5000);}});
+  document.addEventListener('keydown', event=>{if(document.querySelector('dialog[open]'))return;if(event.code==='Space'&&!event.target.matches('input,textarea,select,button')){event.preventDefault();togglePlay();}if(document.fullscreenElement&&event.code==='ArrowRight'){seekTo(currentMs()+5000);}if(document.fullscreenElement&&event.code==='ArrowLeft'){seekTo(currentMs()-5000);}});
   $('fontSize').oninput=()=>{state.project.style.fontSize=+$('fontSize').value;$('fontSizeValue').textContent=$('fontSize').value;markDirty();tick();};
   $('resolution').onchange=()=>{Object.assign(state.project.style,{width:1920,height:1080});markDirty();tick();};
   $('videoLayout').onchange=()=>{state.project.style.layout=$('videoLayout').value;markDirty();tick();};

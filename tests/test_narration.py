@@ -250,6 +250,11 @@ class NarrationHTTPTests(unittest.TestCase):
             time.sleep(.02)
         self.assertEqual(session["master"]["status"],"ready")
         response, master = self.request("/api/narration/" + session["id"] + "/master", headers=headers)
+        response, first_bytes = self.request("/api/narration/" + session["id"] + "/master?version=" + str(session["timelineRevision"]) + "&play=1",
+            headers={**headers, "Range": "bytes=0-43"})
+        self.assertEqual(response.status,206)
+        self.assertEqual(first_bytes,master[:44])
+        self.assertNotIn("Content-Disposition",response.headers)
         import io
         with wave.open(io.BytesIO(master),"rb") as wav:
             self.assertEqual((wav.getnframes(),wav.getframerate(),wav.getsampwidth()),(144000,48000,3))
