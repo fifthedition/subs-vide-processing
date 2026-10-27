@@ -1,0 +1,22 @@
+services:
+  studio:
+    image: sixthedition/subs-video-processor:${STUDIO_VERSION:-0.4.0}
+    container_name: breathwork-studio
+    init: true
+    restart: unless-stopped
+    # Set this to the UID:GID that owns the NAS data folder.
+    user: "${STUDIO_UID:-1000}:${STUDIO_GID:-1000}"
+    environment:
+      STUDIO_PUBLIC_URL: https://breathworkers.nasforlife.eu
+    ports:
+      - "${STUDIO_LISTEN_IP:-127.0.0.1}:8787:8787"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s

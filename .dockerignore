@@ -1,0 +1,12 @@
+**
+!requirements.txt
+!app.py
+!studio.py
+!services.py
+!security.py
+!export_queue.py
+!uploads.py
+!teleprompter.py
+!manage.py
+!static/
+!static/**
