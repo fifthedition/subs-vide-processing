@@ -13,7 +13,7 @@ import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PIL import Image
-from studio import ROOT, ConflictError, Store, ValidationError, import_subtitles, normalize_project, normalize_segments, render_video, subtitle_text, time_ms
+from studio import ROOT, ConflictError, Store, ValidationError, import_subtitles, normalize_project, normalize_segments, probe_audio, render_video, subtitle_text, time_ms
 
 
 def synthetic_audio(path, duration=8):
@@ -117,12 +117,69 @@ class RenderingTests(unittest.TestCase):
             self.assertEqual(sorted(s["codec_type"] for s in result["streams"]), ["audio", "video"])
             self.assertLess(abs(float(result["format"]["duration"]) - 8), .08)
             self.assertEqual(next(s["codec_name"] for s in result["streams"] if s["codec_type"] == "video"), "h264")
+            video = next(s for s in result["streams"] if s["codec_type"] == "video")
+            audio = next(s for s in result["streams"] if s["codec_type"] == "audio")
+            self.assertEqual((video["width"], video["height"]), (1920, 1080))
+            self.assertEqual((audio["channels"], audio["sample_rate"]), (2, "16000"))
             self.assertEqual(progress[-1], 100)
+            import array
+            raw_audio = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(output), "-ss", "0.25", "-t", "1", "-f", "f32le", "pipe:1"])
+            samples = array.array("f"); samples.frombytes(raw_audio)
+            left, right = samples[::2], samples[1::2]
+            self.assertLess(max(abs(a-b) for a,b in zip(left,right)), .00001)
+            level = (sum(value*value for value in left)/len(left))**.5
+            original_level = 2500/32768/math.sqrt(2)
+            self.assertAlmostEqual(level/original_level, 1, delta=.05)
             for second, expect_text in ((.4, False), (1.4, True), (2.4, False), (3.4, True), (6.4, False)):
                 raw = subprocess.check_output(["ffmpeg", "-v", "error", "-ss", str(second), "-i", str(output), "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"])
                 image = Image.open(io.BytesIO(raw)).convert("L")
                 bright = sum(count for luminance, count in enumerate(image.histogram()) if luminance > 100)
                 self.assertEqual(bright > 100, expect_text, f"Wrong prompt state at {second} seconds")
+
+    def test_stereo_channels_source_rate_and_aac_packets_are_preserved(self):
+        """Different tones detect mono collapse, channel swaps and cross-feed."""
+        import array
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            music, aac, video = directory / "stereo.wav", directory / "stereo.m4a", directory / "video.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                "aevalsrc=0.2*sin(2*PI*440*t)|0.2*sin(2*PI*880*t):s=44100:d=2",
+                "-c:a", "pcm_s24le", str(music)], check=True)
+            source = probe_audio(music)
+            self.assertEqual((source["sampleRate"], source["channels"]), (44100, 2))
+            project = normalize_project({"segments": [{"startMs": 0, "endMs": 1500, "text": "Ľahký nádych."}],
+                                         "style": {"layout": "single", "width": 1280, "height": 720}})
+            render_video(project, music, video)
+            exported = probe_audio(video)
+            self.assertEqual((exported["sampleRate"], exported["channels"], exported["codec"]), (44100, 2, "aac"))
+            # AAC's actual rate is content-dependent even with a 320k target;
+            # two simple pure tones need fewer bits than a full music track.
+            self.assertGreater(exported["bitRate"], 192000)
+            decoded = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(video), "-ss", "0.3", "-t", "1", "-f", "f32le", "pipe:1"])
+            samples = array.array("f"); samples.frombytes(decoded)
+            left, right = samples[::2], samples[1::2]
+            def tone(channel, frequency):
+                return abs(sum(x*complex(math.cos(2*math.pi*frequency*n/44100), math.sin(2*math.pi*frequency*n/44100)) for n,x in enumerate(channel)))
+            self.assertGreater(tone(left,440), 50 * tone(left,880))
+            self.assertGreater(tone(right,880), 50 * tone(right,440))
+            subprocess.run(["ffmpeg", "-v", "error", "-i", str(music), "-c:a", "aac", "-b:a", "192k", str(aac)], check=True)
+            render_video(project, aac, video)
+            def packets(path):
+                result = subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_packets", "-show_data_hash", "sha256", "-of", "json", str(path)])
+                return [packet["data_hash"] for packet in json.loads(result)["packets"]]
+            self.assertEqual(packets(aac), packets(video))
+
+    def test_legacy_720p_sessions_preview_and_export_in_full_hd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            project = store.create("Legacy", test_project()["segments"])
+            project["style"].update(width=1280, height=720)
+            with store.connection() as db:
+                db.execute("UPDATE projects SET payload=? WHERE id=?", (json.dumps(project),project["id"]))
+            loaded = store.get(project["id"])
+            self.assertEqual((loaded["style"]["width"],loaded["style"]["height"]), (1920,1080))
+            self.assertEqual(loaded["segments"],project["segments"])
+            self.assertEqual(loaded["revision"],project["revision"])
 
     def test_export_rejects_prompts_after_music_and_negative_offset(self):
         with tempfile.TemporaryDirectory() as directory:

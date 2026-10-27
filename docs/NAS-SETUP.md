@@ -4,7 +4,7 @@ Target: DS1522+ Container Manager, HTTPS through Nginx Proxy Manager at <https:/
 
 ## 1. Publish the image
 
-Complete [RELEASING.md](RELEASING.md) first. The prepared image reference is `sixthedition/subs-video-processor:0.4.1`. It becomes available after the release workflow succeeds; preparing this source does not itself publish an image.
+Complete [RELEASING.md](RELEASING.md) first. The prepared image reference is `sixthedition/subs-video-processor:0.5.0`. It becomes available after the release workflow succeeds; preparing this source does not itself publish an image.
 
 ## 2. Prepare the private data folder
 
@@ -82,7 +82,7 @@ Create a renderer token and follow [MAC-RENDERER.md](MAC-RENDERER.md).
 
 ## Updates and backups
 
-Before an app update, stop the container and back up the entire private `data` folder. Keep the old image version. Set `STUDIO_VERSION` to the new tested version, download/pull it in Container Manager, and recreate the project/container using the same data volume. Update the Mac checkout if the renderer compatibility version changes. App 0.4.1 retains renderer compatibility 0.4.0, so this interface update uses the existing paired worker.
+Before an app update, stop the container and back up the entire private `data` folder. Keep the old image version. Set `STUDIO_VERSION` to the new tested version, download/pull it in Container Manager, and recreate the project/container using the same data volume. App 0.5.0 requires the updated 0.5.0 Mac checkout; existing pairing stays valid. Drain the old export queue first, or cancel and resubmit old queued exports after updating. Retain the existing private data volume rather than reimporting an older installation snapshot.
 
 Container Manager UI wording varies by DSM release. The terminal equivalent from the NAS project folder is:
 

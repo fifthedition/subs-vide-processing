@@ -103,8 +103,9 @@ def normalize_project(project):
     except (ValueError, TypeError):
         raise ValidationError("Invalid video style.")
     if (width, height) not in ((1920, 1080), (1280, 720)):
-        raise ValidationError("Choose 1080p or 720p output.")
-    style["width"], style["height"] = width, height
+        raise ValidationError("Choose Full HD · 1080p output.")
+    # Older saved sessions may say 720p. All new previews and exports are Full HD.
+    style["width"], style["height"] = 1920, 1080
     if style["layout"] not in ("teleprompter", "single"):
         raise ValidationError("Choose the teleprompter or single-prompt video layout.")
     for key in ("background", "color"):
@@ -208,7 +209,7 @@ class Store:
             row = db.execute("SELECT payload FROM projects WHERE id=?", (project_id,)).fetchone()
         if not row:
             raise KeyError("Session not found.")
-        return json.loads(row["payload"])
+        return normalize_project(json.loads(row["payload"]))
 
     def summaries(self):
         with self.connection() as db:
@@ -290,7 +291,28 @@ def probe_audio(path):
     duration = float(data.get("format", {}).get("duration", audio.get("duration", 0) if audio else 0))
     if not audio or not math.isfinite(duration) or duration <= 0 or duration > 12 * 3600:
         raise ValidationError("Choose an audio file between 0 and 12 hours long.")
-    return {"durationMs": round(duration * 1000), "channels": audio.get("channels", 0), "codec": audio.get("codec_name", "")}
+    return {"durationMs": round(duration * 1000), "channels": audio.get("channels", 0),
+            "codec": audio.get("codec_name", ""), "sampleRate": int(audio.get("sample_rate") or 0),
+            "bitRate": int(audio.get("bit_rate") or 0), "channelLayout": audio.get("channel_layout", "")}
+
+
+def export_audio_options(info):
+    """Keep stereo AAC packets intact; otherwise preserve rate and encode stereo.
+
+    Never sum a stereo recording to mono: independent left/right channels matter
+    for binaural tracks. A mono source becomes dual mono, not invented stereo.
+    AAC cannot retain PCM bit depth; its high-quality fallback is 320 kbit/s.
+    """
+    if info["codec"] == "aac" and info["channels"] == 2:
+        return ["-c:a", "copy"]
+    options = ["-c:a", "aac", "-b:a", "320k", "-ac", "2"]
+    if info["channels"] == 1:
+        # Duplicate at unity gain instead of the default -3 dB mono upmix.
+        options += ["-af", "pan=stereo|c0=c0|c1=c0"]
+    rates = (7350, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000)
+    source_rate = info.get("sampleRate") or 48000
+    rate = min(rates, key=lambda candidate: abs(candidate - source_rate))
+    return options + ["-ar", str(rate)]
 
 
 def wrap_text(draw, text, font, maximum):
@@ -384,7 +406,7 @@ def render_video(project, music_path, destination, progress=lambda value, stage:
         partial_output = work / "output.mp4"
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *inputs,
                    "-i", str(Path(music_path).resolve()), *mapping, "-c:v", "libx264", "-preset", "veryfast",
-                   "-tune", "stillimage", "-crf", "20", "-r", "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k",
+                   "-tune", "stillimage", "-crf", "16", "-r", "25", "-pix_fmt", "yuv420p", *export_audio_options(info),
                    "-t", f"{duration / 1000:.3f}", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(partial_output)]
         progress(20, "Rendering video")
         with (work / "ffmpeg-error.log").open("w+") as errors:

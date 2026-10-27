@@ -1,0 +1,6 @@
+{
+  "name": "breathwork-studio-interface-tests",
+  "private": true,
+  "scripts": {"test": "node --test tests/test_interface.js"},
+  "devDependencies": {"jsdom": "26.1.0"}
+}
