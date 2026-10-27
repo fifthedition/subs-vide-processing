@@ -5,7 +5,7 @@ The Mac initiates HTTPS connections to the NAS. There is no inbound Mac server, 
 ## Pair once
 
 1. Install Python 3.11+ and FFmpeg (`brew install ffmpeg` if using Homebrew).
-2. Keep a checkout/download of this repository on the Mac, matching the NAS renderer compatibility version. App 0.6.0 requires renderer 0.6.0 for guide and final narration exports. Updating the code does not require a new token or pairing.
+2. Keep a checkout/download of this repository on the Mac, matching the NAS renderer compatibility version. App 0.6.1 uses renderer 0.6.0 for guide and final narration exports; this patch does not require an update to an existing 0.6.0 worker. Updating the code does not require a new token or pairing.
 3. Sign in to the NAS app as owner. Open **People & Mac renderers**, enter a name, and create a renderer token. Copy it while shown; the app stores only its hash.
 4. Double-click **Configure-Mac-Renderer.command** in Finder. It prepares the Python environment, asks for the app HTTPS address and prompts for the token without showing typed characters. It checks the connection and stores the token in macOS Keychain. The token is sent over stdin to the Keychain tool, not placed in process arguments or a shell history command.
 

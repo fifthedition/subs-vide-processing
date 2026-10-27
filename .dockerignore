@@ -10,5 +10,6 @@
 !manage.py
 !narration.py
 !mixing.py
+!lifecycle.py
 !static/
 !static/**
