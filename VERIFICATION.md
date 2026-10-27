@@ -1,4 +1,4 @@
-# Verification — 0.4.0
+# Verification — 0.4.1
 
 Tested on macOS with Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. Public Linux/container checks are included in GitHub Actions; their result is recorded separately in the pull request.
 
@@ -23,3 +23,5 @@ Still requires the user's deployment:
 5. Confirm large transfers through the actual proxy and rendering performance/space for a full-length session. No full-length benchmark has been run.
 
 The old local `breathwork-studio` app and its saved projects remain separate from this deployment checkout. No NAS service, proxy setting, Docker Hub image or user Keychain entry was changed by local verification.
+
+The 0.4.1 update adds full export timestamps in the browser and dated download filenames. The HTTP render/upload/download test checks Copenhagen timestamps, UTC fallback and range downloads. The renderer compatibility value stays at 0.4.0; no render engine, database schema, stored media or worker pairing changes are required.

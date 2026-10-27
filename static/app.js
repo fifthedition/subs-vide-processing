@@ -271,11 +271,22 @@ function updateCueTime(event, finished = false) {
     state.invalid.add(fieldKey);row.classList.add('invalid');showValidation(error.message);saveLabel('Fix cue time','error');
   }
 }
+function formatExportTime(value) {
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?'Unknown date':date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZoneName:'short'});
+}
+function exportDownloadUrl(id) {
+  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  return '/api/jobs/'+id+'/download?timezone='+encodeURIComponent(zone);
+}
 async function loadJobs() {
   if (!state.project) return;
   const projectId=state.project.id;
   try { const jobs=await api('/api/jobs?projectId='+projectId); if(state.project.id!==projectId)return; state.jobs=jobs;
-    $('jobList').innerHTML=jobs.length?jobs.slice(0,5).map(j=>`<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${j.status==='complete'?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><small>Saved revision ${j.revision} · ${new Date(j.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</small>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${j.status==='complete'?`<div><a href="/api/jobs/${j.id}/download">Download MP4 ↗</a></div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`).join(''):'<p class="empty-exports">Your finished videos will appear here.<br>Only your music and visible prompts are included.</p>';
+    $('jobList').innerHTML=jobs.length?jobs.slice(0,5).map(j=>{
+      const completed=j.status==='complete',timestamp=completed?(j.completedAt||j.createdAt):j.createdAt;
+      return `<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${completed?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><div class="job-meta"><small>Saved revision ${j.revision}</small><small>${completed?'Exported':'Requested'} ${escapeHTML(formatExportTime(timestamp))}</small></div>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${completed?`<div><a href="${exportDownloadUrl(j.id)}">Download MP4 ↗</a></div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`;
+    }).join(''):'<p class="empty-exports">Your finished videos will appear here.<br>Only your music and visible prompts are included.</p>';
     const busy=jobs.some(j=>j.status==='queued'||j.status==='rendering'),queued=jobs.some(j=>j.status==='queued'); $('exportVideo').disabled=busy||!state.project; $('exportVideo').textContent=busy?(queued?'Queued for export':'Rendering…'):(state.auth?.remote?'↗ Send for export':'↗ Export MP4');
     $('jobList').querySelectorAll('.job').forEach((element,index)=>{const job=jobs[index];if(!job)return;const action=job.status==='failed'&&job.protocol?'retry':job.status==='queued'&&job.protocol?'cancel':null;if(action){const button=document.createElement('button');button.className='text-button';button.textContent=action==='retry'?'Retry this export':'Cancel queued export';button.onclick=async()=>{try{await api('/api/jobs/'+job.id+'/'+action,{method:'POST',body:{}});await loadJobs();}catch(error){toast(error.message,true);}};element.append(button);}});
   } catch {}

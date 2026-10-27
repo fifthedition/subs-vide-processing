@@ -1,5 +1,6 @@
 """Queue recovery, access boundaries, transfers and a real HTTP worker round trip."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from functools import partial
 from http.server import ThreadingHTTPServer
 import io
@@ -14,7 +15,9 @@ import time
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.parse import unquote
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from app import Application, Handler
 from export_queue import ExportQueue, PROTOCOL, RENDERER_VERSION, file_hash
@@ -274,8 +277,16 @@ class HTTPWorkerTests(unittest.TestCase):
         self.assertEqual(jobs[0]["status"], "complete")
         for private in ("snapshot", "attempt", "workerId", "claimId"):
             self.assertNotIn(private, jobs[0])
-        _, video = self.request("/api/jobs/" + job["id"] + "/download")
+        response, video = self.request("/api/jobs/" + job["id"] + "/download?timezone=Europe%2FCopenhagen")
         self.assertEqual(len(video), jobs[0]["result"]["bytes"])
+        filename = unquote(response.headers["Content-Disposition"])
+        exported_at = datetime.fromisoformat(jobs[0]["completedAt"]).astimezone(ZoneInfo("Europe/Copenhagen"))
+        self.assertIn(f"_r{project['revision']}_", filename)
+        self.assertIn(exported_at.strftime("%Y-%m-%d_%H-%M-%S%z"), filename)
+        self.assertTrue(filename.endswith(job["id"][:8] + ".mp4"))
+        response, first_byte = self.request("/api/jobs/" + job["id"] + "/download", headers={"Range": "bytes=0-0"})
+        self.assertEqual(first_byte, video[:1])
+        self.assertIn("+0000", unquote(response.headers["Content-Disposition"]))
         self.assertEqual(list((self.directory / "mac/exports").iterdir()), [])
         second = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=10)
         self.assertEqual(second.returncode, 0)
