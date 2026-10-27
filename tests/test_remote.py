@@ -233,6 +233,10 @@ class HTTPWorkerTests(unittest.TestCase):
             return response, json.loads(data) if response.headers.get_content_type() == "application/json" else data
 
     def test_http_auth_role_csrf_and_renderer_scope(self):
+        for route in ("/favicon.svg", "/favicon.ico", "/i18n.js", "/login"):
+            response, content = self.request(route, headers={"Cookie": ""})
+            self.assertEqual(response.status, 200)
+            self.assertTrue(content)
         for headers in ({"Cookie": ""}, {"Cookie": "studio_session=invalid"}):
             with self.assertRaises(HTTPError) as error:
                 self.request("/api/projects", headers=headers)

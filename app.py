@@ -22,7 +22,7 @@ from security import Security, AccessError
 from export_queue import ExportQueue, export_filename, PROTOCOL, RENDERER_VERSION, CHUNK_BYTES
 from uploads import Uploads
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.5.0"
 
 
 class Application:
@@ -191,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise AccessError("Open the app at its configured address to make changes.", 403)
             self.user = {"id": "local", "username": "Local workspace", "role": "owner"}
             if remote:
-                public = route in ("/", "/login", "/login.js", "/styles.css", "/api/health", "/api/auth/state", "/api/auth/login", "/api/auth/setup", "/assets/Inter.ttf", "/assets/Inter-OFL.txt")
+                public = route in ("/", "/login", "/login.js", "/i18n.js", "/styles.css", "/favicon.ico", "/favicon.svg", "/api/health", "/api/auth/state", "/api/auth/login", "/api/auth/setup", "/assets/Inter.ttf", "/assets/Inter-OFL.txt")
                 if route.startswith("/api/worker/"):
                     self.worker_identity = self.application.security.worker(self.headers.get("Authorization", ""))
                 elif not public:
@@ -300,7 +300,7 @@ class Handler(BaseHTTPRequestHandler):
             media = self.store.media(match[1])
             target = media["storedName"] if not match[2] else media["id"] + "-waveform.png"
             self.send_file(self.store.directory / "media" / target, content_type=media.get("mime") if not match[2] else "image/png")
-        elif route in ("/", "/login", "/login.js", "/app.js", "/teleprompter.js", "/styles.css"):
+        elif route in ("/", "/login", "/login.js", "/i18n.js", "/app.js", "/teleprompter.js", "/styles.css", "/favicon.ico", "/favicon.svg"):
             filename = "index.html" if route == "/" else "login.html" if route == "/login" else route[1:]
             if route == "/" and self.application.remote:
                 try:

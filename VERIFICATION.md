@@ -1,27 +1,39 @@
-# Verification — 0.4.1
+# Verification — 0.5.0
 
-Tested on macOS with Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. Public Linux/container checks are included in GitHub Actions; their result is recorded separately in the pull request.
+Local verification uses macOS, Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. GitHub Actions repeats the tests on Linux, builds the image, and checks an empty protected container. CI results are recorded in the pull request.
 
-The existing renderer tests cover fixed teleprompter areas, Slovak text, elapsed/remaining/countdown boundaries, cue gaps and offsets, encoded video duration/streams, decoded picture comparisons, and correlation with the sole supplied audio source. Editing tests cover imports, revision conflicts and persistence. Provider calls use mocked responses; no paid live API request was made.
+## Interface
 
-New tests exercise:
+Six DOM integration tests exercise the real HTML and JavaScript with synthetic API fixtures:
 
-- First-owner setup, hashed passwords, sessions, editor disabling and renderer token revocation.
-- HTTP authentication, Secure/HttpOnly/SameSite cookie flags, CSRF and Origin rejection, exact Host checking, editor/admin boundaries and renderer credential scope.
-- Frozen export revisions, duplicate submission handling, restart persistence, atomic concurrent claims, repeated claim requests, expiry/reassignment and stale-attempt rejection, retry/cancel and renderer-version mismatch.
-- Audio upload offsets across restart, repeated chunks, mismatched chunks, account isolation and idempotent finalization.
-- A real eight-second HTTP queue → native worker → FFmpeg → chunked MP4 upload → downloadable video round trip, followed by an empty-queue run that exits. Test data and caches are isolated; the existing app's database/audio were not modified.
+- Slovak default, English preference, static labels, placeholders, accessible names, export stages and validation messages.
+- Repeated SK/EN switches with dirty subtitle edits and an unfinished invalid time; no project mutation, save request, lost selection or audio reload.
+- Session names, source/reference text, music names, usernames and entered API keys stay intact.
+- Settings and account dialogs, empty-workspace import, sign-in and first-owner setup.
+- SVG favicon and the Full HD output control.
 
-Local launch scripts and JavaScript/Python syntax are checked. Private original website/subtitle content is excluded from Git and image copies. A separate optional private-archive regression verifies all 35 documents/7,627 cues when its private path is supplied. Synthetic archive tests run without those documents.
+JavaScript syntax checks include the shared translation module. These are DOM tests, not a real-browser visual or playback test; the responsive layout and fullscreen still need a deployed browser check.
 
-Still requires the user's deployment:
+## Rendering and queue
 
-1. Publish the image using a Docker Hub Actions secret and deploy it on the NAS.
-2. Check the existing Nginx Proxy Manager configuration/HTTPS certificate and private data permissions.
-3. Manually check sign-in, empty-workspace import, editor workflow, browser playback/fullscreen and owner controls in the deployed browser. No automated live browser tool was available in this session.
-4. Pair once with macOS Keychain and test a complete real journey. Keychain itself was not modified by automated tests; token files were used in an isolated loopback test.
-5. Confirm large transfers through the actual proxy and rendering performance/space for a full-length session. No full-length benchmark has been run.
+Thirty Python tests cover editing, imports, persistence, revision conflicts, account/CSRF/role boundaries, provider mocks, resumable uploads and durable claims/recovery. One private archive regression is intentionally skipped without the private archive.
 
-The old local `breathwork-studio` app and its saved projects remain separate from this deployment checkout. No NAS service, proxy setting, Docker Hub image or user Keychain entry was changed by local verification.
+Real FFmpeg tests verify:
 
-The 0.4.1 update adds full export timestamps in the browser and dated download filenames. The HTTP render/upload/download test checks Copenhagen timestamps, UTC fallback and range downloads. The renderer compatibility value stays at 0.4.0; no render engine, database schema, stored media or worker pairing changes are required.
+- New output is 1920 × 1080 H.264 with two audio channels, including legacy 720p projects and mono sources.
+- 44.1 kHz stereo is retained, and independent 440/880 Hz tones stay in the correct left/right channels.
+- Stereo AAC source and MP4 output have identical audio packet hashes.
+- Mono is duplicated at its original level into both channels.
+- Fixed previous/current/next areas, timers, countdowns, gaps and offset boundaries match decoded frames at Full HD.
+- The supplied music remains the sole audible source.
+- A real eight-second HTTP queue → Mac worker → FFmpeg → upload → download round trip completes, then the foreground worker exits on an empty queue.
+- Export download names retain dates, saved revisions, timezone offsets and IDs; range downloads work.
+- Favicon and translations are available before sign-in while project APIs remain protected.
+
+No paid provider request or full-length render benchmark was performed. Automated tests use isolated synthetic data and never modify the NAS, the existing private archive, service keys or Mac Keychain. Public Docker copies use the existing source allowlist; data, subtitles, music, databases and credentials stay excluded.
+
+## Deployment
+
+Update the NAS image and Mac checkout together to 0.5.0; existing accounts, private data and renderer pairing remain valid. Drain the previous queue first, or cancel and send older queued exports again afterward. Retain the current NAS data volume. Existing completed exports are unchanged.
+
+The NAS was already running 0.4.1 with working HTTPS, owner/editor accounts and a paired Mac render round trip. This release's browser appearance, full-length music and large proxy transfers need a check after the image update.

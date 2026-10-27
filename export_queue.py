@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from studio import ConflictError, ValidationError, make_frame, normalize_project, now, uid
 
 PROTOCOL = 1
-RENDERER_VERSION = "0.4.0"
+RENDERER_VERSION = "0.5.0"
 LEASE_SECONDS = 180
 CHUNK_BYTES = 4 * 1024 * 1024
 MAX_EXPORT_BYTES = 32 * 1024 ** 3
@@ -267,6 +267,10 @@ class ExportQueue:
             info = json.loads(process.stdout)
             duration = round(float(info["format"]["duration"]) * 1000)
             if process.returncode or sorted(s["codec_type"] for s in info["streams"]) != ["audio", "video"] or abs(duration - job["music"]["durationMs"]) > 250:
+                raise ValueError()
+            video = next(s for s in info["streams"] if s["codec_type"] == "video")
+            audio = next(s for s in info["streams"] if s["codec_type"] == "audio")
+            if job.get("rendererVersion") == RENDERER_VERSION and ((video.get("width"), video.get("height")) != (1920, 1080) or audio.get("channels") != 2):
                 raise ValueError()
         except (KeyError, ValueError, TypeError):
             raise ValidationError("The uploaded file is not a complete music-and-video export.") from None

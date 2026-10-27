@@ -30,7 +30,13 @@ Completed exports show their full date, time and timezone. Downloads include the
 
 ## Editing and drafts
 
-The editor supports timed cue editing, split/merge, undo, automatic saving with revision conflict detection, SRT/VTT/JSON imports, subtitle downloads, project backups, reference text/audio, music upload, waveform seeking, prompt offsets, theme/font/resolution selection and fullscreen presentation. New JSON imports create a separate session.
+The Clear light editor uses a navy sidebar, white panels, blue actions, larger subtitle text and visible input borders. The interface defaults to Slovak; the SK/EN switch on the editor and sign-in page remembers the language on that browser. Interface language does not alter session titles, subtitle/reference text, audio or the Slovak labels in the exported video.
+
+The editor supports timed cue editing, split/merge, undo, automatic saving with revision conflict detection, SRT/VTT/JSON imports, subtitle downloads, project backups, reference text/audio, music upload, waveform seeking, prompt offsets, video theme/font selection and fullscreen presentation. New JSON imports create a separate session.
+
+All new exports are **1920 × 1080**, H.264 at CRF 16. Older 720p projects open and export in Full HD without changing cue text, timing or revision. Already completed files remain available as originally rendered.
+
+Exports always have **two audio channels**. Stereo AAC is copied unchanged, preserving the original audio quality and sample rate. Other formats are encoded to AAC at a 320 kb/s target, retaining the source sample rate where AAC supports it (otherwise the nearest supported rate). Stereo left/right channels remain separate; no normalization or voice is added. Mono is duplicated into both channels at the original level; it cannot create a spatial stereo recording. Multichannel sources use FFmpeg's stereo downmix. Lossless WAV/FLAC bit depth cannot be inherited by lossy AAC. Actual AAC bitrate depends on content.
 
 Optional ElevenLabs and DeepL keys are configured by the owner in **Services & API keys**. Creating an audio draft sends the source recording to ElevenLabs for timed transcription and sends text to DeepL for Slovak translation. Charges can apply. No provider call is made just by saving keys. Review drafts before guiding live. Source recordings remain available for review and cannot be selected as the final music track.
 
@@ -40,8 +46,11 @@ Optional ElevenLabs and DeepL keys are configured by the owner in **Services & A
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/login.js
+node --check static/i18n.js
+npm ci --ignore-scripts
+npm test
 ```
 
 CI runs the suite, builds the Linux image and checks its startup/authentication defaults. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
 
-App version: **0.4.1**. Renderer compatibility version: **0.4.0**. This interface update works with the existing 0.4.0 Mac worker. Renderer compatibility versions must match when rendering behavior changes. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`.
+App and renderer compatibility version: **0.5.0**, protocol 1. Update both the NAS image and Mac checkout for the new video/audio settings; the existing Keychain pairing stays valid. Drain old queued exports before updating, or cancel and send them again afterward. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.

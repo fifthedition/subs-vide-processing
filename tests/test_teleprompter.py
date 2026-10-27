@@ -62,9 +62,9 @@ class TeleprompterTests(unittest.TestCase):
                 data = subprocess.check_output(["ffmpeg", "-v", "error", "-ss", str(second), "-i", str(video), "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"])
                 decoded = Image.open(io.BytesIO(data)).convert("RGB")
                 expected = make_frame(project, round(second * 1000), 8375)
-                for name, bounds in (("clocks", (0, 0, 1280, 115)), ("previous", (70, 155, 1210, 250)),
-                                     ("current", (70, 270, 1210, 485)), ("next", (70, 515, 1210, 640)),
-                                     ("countdown", (470, 655, 810, 720))):
+                for name, bounds in (("clocks", (0, 0, 1920, 173)), ("previous", (105, 233, 1815, 375)),
+                                     ("current", (105, 405, 1815, 728)), ("next", (105, 773, 1815, 960)),
+                                     ("countdown", (705, 983, 1215, 1080))):
                     difference = ImageChops.difference(decoded.crop(bounds), expected.crop(bounds))
                     self.assertLess(max(ImageStat.Stat(difference).mean), 2.5, f"{name} does not match at {second}s")
             # The same supplied music remains the sole audible input.
