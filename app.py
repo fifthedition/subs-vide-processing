@@ -26,7 +26,7 @@ from mixing import render_mix
 from export_queue import file_hash
 from lifecycle import Requests, Stopping, serve
 
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 
 
 class Application:

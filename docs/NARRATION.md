@@ -36,7 +36,7 @@ Keep the original tab open until uploads finish. Browser-private storage must be
 
 1. Download the master and process it manually in Adobe Podcast. Preserve timing and silence; no Adobe API integration or account access is used.
 2. Upload the enhanced audio in the studio. Explicitly identify the WAV version it came from. A later retake makes the previous enhancement stale.
-3. Select saved/enhanced narration plus music for synchronized playback. Adjust voice offset (positive plays later), music level and voice level.
+3. Select saved/enhanced narration plus music, seek the video to a recorded section, then click **Play preview / Prehrať náhľad** in Listen and align. Use **Pause preview / Pozastaviť náhľad** to stop both tracks. Adjust voice offset (positive plays later), music level and voice level. The full WAV is silent outside recorded sections. Playback/loading errors appear directly in this panel; if the browser blocks voice playback, click Play preview to retry with an explicit user gesture.
 4. Check synchronization near both the beginning and end, confirm it, and save the mix settings.
 5. Send the final mix to the Mac renderer. The owner runs the same manual launcher again. The immutable job downloads the guide and enhanced voice, copies the video stream unchanged, mixes stereo audio and uploads the final MP4.
 6. Play or download the final file in the app. Final filenames include `_final`; guide and final exports remain separate.
