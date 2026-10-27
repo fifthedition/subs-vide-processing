@@ -165,8 +165,12 @@ class MixTests(unittest.TestCase):
                 "aevalsrc=0.07*sin(2*PI*440*t)|0.07*sin(2*PI*880*t):s=48000:d=3","-c:a","pcm_s24le",str(music)],check=True)
             subprocess.run(["ffmpeg","-v","error","-f","lavfi","-i",
                 "sine=frequency=1600:sample_rate=48000:duration=1","-c:a","pcm_s24le",str(voice)],check=True)
-            project=normalize_project({"segments":[{"startMs":0,"endMs":2500,"text":"Pokoj."}],"style":{"layout":"single"}})
-            render_video(project,music,guide)
+            # Legacy static guides can end their video packets before the
+            # music. Keep that condition deterministic on every FFmpeg version.
+            subprocess.run(["ffmpeg","-v","error","-f","lavfi","-i",
+                "color=c=black:s=1920x1080:r=25:d=2.5","-i",str(music),"-map","0:v:0","-map","1:a:0",
+                "-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
+                "-c:a","aac","-b:a","320k",str(guide)],check=True)
             render_mix(guide,voice,final,{"musicVolume":.5,"voiceVolume":1,"voiceOffsetMs":1000})
             def hashes(path):
                 result=json.loads(subprocess.check_output(["ffprobe","-v","error","-select_streams","v:0","-show_packets","-show_data_hash","sha256","-of","json",str(path)]))
@@ -179,11 +183,13 @@ class MixTests(unittest.TestCase):
                     return abs(sum(v*complex(math.cos(2*math.pi*f*n/48000),math.sin(2*math.pi*f*n/48000)) for n,v in enumerate(values)))
                 left,right=samples[::2],samples[1::2]
                 return {f:(strength(left,f),strength(right,f)) for f in (440,880,1600)}
-            before,during,after=spectrum(.3),spectrum(1.3),spectrum(2.4)
+            before,during,after=spectrum(.3),spectrum(1.3),spectrum(2.65)
             self.assertGreater(during[440][0],50*during[440][1])
             self.assertGreater(during[880][1],50*during[880][0])
             self.assertGreater(during[1600][0],100*before[1600][0])
             self.assertGreater(during[1600][1],100*after[1600][1])
+            self.assertGreater(after[440][0],100)
+            self.assertGreater(after[880][1],100)
             info=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-show_format","-of","json",str(final)]))
             self.assertEqual(next(s["channels"] for s in info["streams"] if s["codec_type"]=="audio"),2)
             def timings(path):

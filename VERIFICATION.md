@@ -21,7 +21,7 @@ Tests cover:
 - Conflict handling retains audio. Retakes invalidate enhanced audio; saving levels cannot silently make an older enhancement current.
 - Final jobs freeze the guide subtitle revision, enhanced-audio hash, offset and levels. Changed settings cannot replace an already queued snapshot.
 - A real HTTP editor recording → private WAV master → enhanced upload → final queue → native Mac worker → chunked upload → authenticated final MP4 download round trip.
-- Final mixing copies video packet hashes unchanged, retains independent left/right music, places mono voice in both channels, applies its offset and preserves video duration.
+- Final mixing copies video packet hashes unchanged, retains independent left/right music through the final audio tail, places mono voice in both channels, applies its offset and preserves guide duration even when its video packets end earlier than its music.
 - Browser PCM encoding/clamping, pause flush, silent microphone output, actual sample-rate settings and processing constraints.
 - Permission denial and an independent mic test that never creates a narration or uploads its audio.
 - IndexedDB persistence across recorder instances, removal of acknowledged chunks and in-memory retention when a storage write fails.

@@ -32,7 +32,8 @@ def render_mix(guide, voice, destination, settings, progress=lambda value, stage
         if offset > 0:
             timing += f",adelay={round(offset)}:all=1"
         stereo = "pan=stereo|c0=c0|c1=c0," if info["channels"] == 1 else ""
-        filters = (f"[0:a:0]aresample=48000,volume={music_level:.8f}[music];"
+        filters = (f"[0:a:0]asetpts=PTS-STARTPTS,aresample=48000,volume={music_level:.8f},"
+                   f"apad,atrim=duration={duration/1000:.6f}[music];"
                    f"[1:a:0]{stereo}{timing},aresample=48000,aformat=channel_layouts=stereo,"
                    f"volume={voice_level:.8f},apad,atrim=duration={duration/1000:.6f}[voice];"
                    "[music][voice]amix=inputs=2:duration=first:normalize=0,"
@@ -40,7 +41,10 @@ def render_mix(guide, voice, destination, settings, progress=lambda value, stage
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(Path(guide).resolve()),
                    "-i", str(Path(voice).resolve()), "-filter_complex", filters, "-map", "0:v:0", "-map", "[audio]",
                    "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2",
-                   "-t", f"{duration/1000:.6f}", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(partial)]
+                   "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(partial)]
+        # Bound both audio branches in the graph. A global -t with copied video
+        # can stop filtered audio at video EOF on older FFmpeg versions, even
+        # when the guide's music continues beyond its last video packet.
         progress(2, "Mixing enhanced narration with stereo music")
         with (work / "error.log").open("w+") as errors:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors, text=True)

@@ -43,6 +43,8 @@ Keep the original tab open until uploads finish. Browser-private storage must be
 
 The final audio is 48 kHz stereo AAC at a 320 kb/s target, with independent music/voice levels and a peak limiter. Mono narration is placed in both channels at unity gain; the original music's left/right channels remain separate. The existing H.264 subtitle video is not re-encoded. Changes made after queueing cannot change that queued mix; cancel it in Exports before resubmitting changed settings.
 
+Check [Adobe's current upload and duration limits](https://podcast.adobe.com/en/plans) against the master before processing a long session. A one-hour 24-bit WAV is about 518 MB; Adobe's free Enhance Speech tier is limited to 30 minutes per file, while Premium currently permits files up to 1 GB. The app does not split or recombine Adobe uploads automatically.
+
 ## Browser acceptance
 
 Use current desktop Chrome, Safari or Firefox on macOS over the existing HTTPS hostname. The implementation uses getUserMedia, AudioWorklet, Web Audio, IndexedDB, WAV and native video playback, with feature detection and permission/device error handling. If playback is blocked by browser autoplay policy, press Play once in the video player, pause it, then start recording.
