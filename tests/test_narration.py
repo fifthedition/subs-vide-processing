@@ -186,7 +186,12 @@ class MixTests(unittest.TestCase):
             self.assertGreater(during[1600][1],100*after[1600][1])
             info=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-show_format","-of","json",str(final)]))
             self.assertEqual(next(s["channels"] for s in info["streams"] if s["codec_type"]=="audio"),2)
-            self.assertAlmostEqual(float(info["format"]["duration"]),3,delta=.08)
+            def timings(path):
+                return json.loads(subprocess.check_output(["ffprobe","-v","error","-show_entries",
+                    "format=duration:stream=codec_type,duration,start_time,nb_frames,avg_frame_rate",
+                    "-of","json",str(path)]))
+            self.assertAlmostEqual(float(info["format"]["duration"]),3,delta=.08,
+                msg=json.dumps({"guide":timings(guide),"final":timings(final)}))
 
 # Exercise browser-facing recording routes and both immutable worker assets.
 import os
