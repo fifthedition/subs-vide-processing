@@ -45,15 +45,17 @@ class Client:
         self.url = url.rstrip("/")
         self.token = token
 
-    def request(self, route, payload=None, *, data=None, headers=None):
+    def request(self, route, payload=None, *, data=None, headers=None, timeout=60, attempts=3):
         body = json.dumps(payload).encode() if payload is not None else data
         request = Request(self.url + route, data=body, headers={"Authorization": "Bearer " + self.token,
                           "Content-Type": "application/json" if payload is not None else "application/octet-stream", **(headers or {})},
                           method="POST" if body is not None else "GET")
-        for attempt in range(3):
+        for attempt in range(attempts):
             try:
-                with build_opener(NoRedirect).open(request, timeout=60) as response:
-                    return json.loads(response.read(25 * 1024 * 1024))
+                with build_opener(NoRedirect).open(request, timeout=timeout) as response:
+                    return json.loads(response.read(64 * 1024 * 1024))
+            except (ValueError, UnicodeDecodeError):
+                raise WorkerError("The NAS did not return app data. Check the hostname and proxy settings.") from None
             except HTTPError as error:
                 try:
                     detail = json.loads(error.read(4096)).get("error", "")
@@ -61,10 +63,10 @@ class Client:
                     detail = ""
                 status = error.code
                 error.close()
-                if status not in (429, 502, 503, 504) or attempt == 2:
+                if status not in (429, 502, 503, 504) or attempt == attempts - 1:
                     raise WorkerError(detail or f"The NAS returned HTTP {status}.") from None
             except (URLError, TimeoutError, OSError):
-                if attempt == 2:
+                if attempt == attempts - 1:
                     raise WorkerError("Cannot reach the NAS. Check the connection and run the renderer again.") from None
             time.sleep(attempt + 1)
 
@@ -122,7 +124,7 @@ class Heartbeat:
         while not self.stop.wait(10):
             try:
                 self.client.request("/api/worker/jobs/" + self.job["id"] + "/heartbeat",
-                    {"attempt": self.job["attempt"], "progress": self.progress, "stage": self.stage})
+                    {"attempt": self.job["attempt"], "progress": self.progress, "stage": self.stage}, timeout=10, attempts=1)
                 last_ok = time.monotonic()
             except WorkerError:
                 if time.monotonic() - last_ok > 100:
@@ -218,7 +220,7 @@ def drain(client, cache):
             completed += 1
         except KeyboardInterrupt:
             try:
-                client.request("/api/worker/jobs/" + job["id"] + "/release", {"attempt": job["attempt"]})
+                client.request("/api/worker/jobs/" + job["id"] + "/release", {"attempt": job["attempt"]}, timeout=5, attempts=1)
             except WorkerError:
                 pass
             print("Stopped. Unfinished work will remain queued on the NAS.", flush=True)
@@ -228,7 +230,7 @@ def drain(client, cache):
             message = str(error)[:1200]
             print("Export failed: " + message, flush=True)
             try:
-                client.request("/api/worker/jobs/" + job["id"] + "/fail", {"attempt": job["attempt"], "error": message})
+                client.request("/api/worker/jobs/" + job["id"] + "/fail", {"attempt": job["attempt"], "error": message}, timeout=10, attempts=1)
             except WorkerError:
                 raise WorkerError("The NAS is unreachable. The unfinished job will return to the queue automatically.") from None
             failed += 1

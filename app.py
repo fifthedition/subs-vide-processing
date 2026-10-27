@@ -28,7 +28,8 @@ class Application:
         self.store = Store(directory)
         self.remote = remote
         self.public_url = (public_url or "").rstrip("/")
-        if remote and (urlsplit(self.public_url).scheme != "https" or not urlsplit(self.public_url).hostname or urlsplit(self.public_url).path):
+        address = urlsplit(self.public_url)
+        if remote and (address.scheme != "https" or not address.hostname or address.path or address.username or address.password or address.query or address.fragment):
             raise ValidationError("Server mode requires STUDIO_PUBLIC_URL, for example https://breathworkers.nasforlife.eu")
         self.security = Security(self.store) if remote else None
         self.queue = ExportQueue(self.store)
@@ -101,7 +102,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Do not log URLs containing one-time values or request/credential bodies.
-        super().log_message("%s %s", self.command, urlsplit(self.path).path)
+        status = args[1] if format == '"%s" %s %s' and len(args) == 3 else "error"
+        super().log_message("%s %s %s", self.command, urlsplit(self.path).path, status)
 
     def read_chunk(self):
         size = int(self.headers.get("Content-Length", 0))

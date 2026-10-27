@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -21,6 +22,7 @@ from security import Security, AccessError
 from studio import Store, ConflictError, ValidationError, render_video
 from uploads import Uploads
 from test_studio import synthetic_audio, test_project
+from worker import drain, WorkerError
 
 
 def session_with_music(store):
@@ -35,6 +37,25 @@ def session_with_music(store):
 
 
 class QueueTests(unittest.TestCase):
+    def test_manual_worker_continues_after_failure_and_releases_on_control_c(self):
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+                self.claims = iter([{"id": "first", "attempt": "a", "project": {"name": "First", "revision": 1}},
+                                    {"id": "second", "attempt": "b", "project": {"name": "Second", "revision": 2}}, None])
+            def request(self, route, payload, **kwargs):
+                self.calls.append(route)
+                return {"job": next(self.claims)} if route.endswith("/claim") else {"ok": True}
+        client = FakeClient()
+        with patch("worker.process_job", side_effect=[WorkerError("Example failure"), None]), patch("sys.stdout", new=io.StringIO()) as output:
+            self.assertEqual(drain(client, Path("unused")), 1)
+            self.assertIn("1 video(s) uploaded; 1 failed", output.getvalue())
+        self.assertIn("/api/worker/jobs/first/fail", client.calls)
+        client = FakeClient()
+        with patch("worker.process_job", side_effect=KeyboardInterrupt), patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(drain(client, Path("unused")), 130)
+        self.assertEqual(client.calls[-1], "/api/worker/jobs/first/release")
+
     def test_video_chunks_resume_and_completion_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory)

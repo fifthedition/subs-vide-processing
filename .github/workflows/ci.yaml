@@ -1,5 +1,6 @@
 name: Test and build
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [main]
@@ -24,11 +25,13 @@ jobs:
         run: docker build -t breathwork-ci .
       - name: Check first boot and private default
         run: |
-          docker run -d --name studio-ci -e STUDIO_PUBLIC_URL=https://studio.example -p 127.0.0.1:8789:8787 breathwork-ci
+          docker run -d --name studio-ci --read-only --tmpfs /tmp:size=512m --cap-drop ALL --security-opt no-new-privileges:true -v studio-ci-data:/data -e STUDIO_PUBLIC_URL=https://studio.example -p 127.0.0.1:8789:8787 breathwork-ci
           python tests/container_smoke.py
       - name: Container diagnostics
         if: failure()
         run: docker logs studio-ci || true
       - name: Clean up
         if: always()
-        run: docker rm -f studio-ci || true
+        run: |
+          docker rm -f studio-ci || true
+          docker volume rm studio-ci-data || true
