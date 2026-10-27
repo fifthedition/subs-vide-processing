@@ -4,7 +4,7 @@ Target: DS1522+ Container Manager, HTTPS through Nginx Proxy Manager at <https:/
 
 ## 1. Publish the image
 
-Complete [RELEASING.md](RELEASING.md) first. The prepared image reference is `sixthedition/subs-video-processor:0.6.2`. It becomes available after the release workflow succeeds; preparing this source does not itself publish an image.
+Complete [RELEASING.md](RELEASING.md) first. The prepared image reference is `sixthedition/subs-video-processor:0.7.0`. It becomes available after the release workflow succeeds; preparing this source does not itself publish an image.
 
 ## 2. Prepare the private data folder
 
@@ -82,7 +82,7 @@ Create a renderer token and follow [MAC-RENDERER.md](MAC-RENDERER.md).
 
 ## Updates and backups
 
-Before an app update, stop the container and back up the entire private `data` folder. Keep the old image version. Set `STUDIO_VERSION` to the new tested version, download/pull it in Container Manager, and recreate the project/container using the same data volume. App 0.6.2 uses renderer compatibility 0.6.0; workers and queued jobs from 0.6.0 need no changes. When upgrading from 0.5.x, drain the old export queue first or cancel/resubmit it after updating the Mac checkout. Existing pairing stays valid. Retain the existing private data volume rather than reimporting an older installation snapshot.
+Before an app update, stop the container and back up the entire private `data` folder. Keep the old image version. Set `STUDIO_VERSION` to the new tested version, download/pull it in Container Manager, and recreate the project/container using the same data volume. App 0.7.0 uses renderer compatibility 0.6.0; workers and queued jobs from 0.6.0 need no changes. When upgrading from 0.5.x, drain the old export queue first or cancel/resubmit it after updating the Mac checkout. Existing pairing stays valid. Retain the existing private data volume rather than reimporting an older installation snapshot.
 
 Keep `init: true`, `stop_signal: SIGTERM` and `stop_grace_period: 30s`. Normal shutdown now logs the signal and completion and exits 0. See [shutdown troubleshooting](SHUTDOWN.md) if the Container Manager UI cannot stop the container.
 

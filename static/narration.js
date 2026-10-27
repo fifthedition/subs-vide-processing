@@ -6,6 +6,7 @@ window.NarrationStudio = (() => {
   let testMode=false,testTimer,testURL=null,testChunks=[],mixDirty=false,hasPending=false,clockTimer,pollTimer;
   let statusKey='Ready to record.',statusValues={},previewError=false,activeExport=false,guideJobs=[],guideSignature='';
   let voicePlay=null,nextVoiceCorrection=0,previewKey='Choose audio and press Play preview.';
+  let selectedClipIndex=null,voiceMapping='';
   const video=()=>$('guideVideo'),voice=()=>$('narrationVoice');
   function status(key,values={}){statusKey=key;statusValues=values;$('narrationStatus').textContent=t(key,values);}
   function microphoneError(error){
@@ -36,10 +37,10 @@ window.NarrationStudio = (() => {
     $('undoNarration').disabled=busy||hasPending||!session?.canUndo;
     $('prepareNarrationMaster').disabled=busy||hasPending||!session?.clips.length||session?.master.status==='building';
     $('narrationAlignment').disabled=busy||!session?.enhancedIsCurrent;
-    $('queueNarrationFinal').disabled=busy||hasPending||activeExport||!session?.enhancedIsCurrent||!$('narrationAlignment').checked;
+    $('queueNarrationFinal').disabled=busy||hasPending||activeExport||session?.remoteChanged||!session?.enhancedIsCurrent||!$('narrationAlignment').checked;
     $('studioMicCheck').disabled=busy;
     $('closeNarration').disabled=preparing||!!stopping;
-    video().controls=!recording;
+    video().controls=!recording;window.StudioTools?.render();
   }
   function level({peak,rms}){
     const db=Math.max(-60,20*Math.log10(Math.max(rms,1e-9))),clipping=peak>=.98;
@@ -119,7 +120,7 @@ window.NarrationStudio = (() => {
     $('narrationVersion').innerHTML='<span data-user-text>'+escape(session.name)+'</span> · '+escape(t('Rendered revision {revision} · narration WAV version {version}',{revision:session.guideRevision,version:session.timelineRevision}));
     $('narrationClips').innerHTML=session.clips.length?session.clips.map((clip,index)=>{
       const start=clip.startFrame/session.sampleRate*1000,end=clip.endFrame/session.sampleRate*1000;
-      return '<div class="narration-clip"><span>'+escape(cfg.clock(start,true))+' – '+escape(cfg.clock(end,true))+'</span><button class="text-button" data-rerecord="'+index+'">'+t('Re-record this range')+'</button></div>';
+      return '<div class="narration-clip"><span>'+escape(cfg.clock(start,true))+' – '+escape(cfg.clock(end,true))+'</span><button class="button outline" data-listen-take="'+index+'">'+(window.StudioIcons?.svg('play')||'▶')+t('Listen to this take')+'</button><button class="text-button" data-rerecord="'+index+'">'+t('Re-record this range')+'</button></div>';
     }).join(''):'<p>'+t('No narration has been saved yet.')+'</p>';
     $('narrationMasterState').textContent=session.master.status==='ready'?
       t('WAV version {version} is ready.',{version:session.timelineRevision}):
@@ -143,9 +144,14 @@ window.NarrationStudio = (() => {
     I18n.apply($('narrationClips'));buttons();playback();
   }
   async function refreshSession(force=false){
-    if(!session||recording||preparing||stopping||(!force&&mixDirty))return;
+    if(!session||recording||preparing||stopping)return;
     const id=session.id,result=await request('/api/narration/'+id);
-    if(session?.id===id){session=result;await refreshExportState();renderSession(force);}
+    if(session?.id===id){
+      if(mixDirty&&result.revision!==session.revision){session.remoteChanged=true;status('Narration changed in another window. Reopen the studio to review the latest version.');}
+      else session=result;
+      if(result.timelineRevision===session.timelineRevision)session.master=result.master;
+      await refreshExportState();renderSession(force);
+    }
   }
   async function refreshExportState(){
     if(!session)return;
@@ -223,6 +229,7 @@ window.NarrationStudio = (() => {
       meta={id:created.id,sessionId:session.id,ownerId:cfg.auth().id,bytes:0,revision:session.revision,
         startMs:start,rate:mic.context.sampleRate,endMs:selected.end,serverOffset:0,done:false};
       if(!await spool.put(meta))throw new Error('Browser storage is unavailable. Free some space before recording.');
+      await window.StudioTools?.beforeRecord(start,seekGuide);
       try{await video().play();}catch{throw new Error('Press Play in the video player once, pause it, then start recording.');}
       const anchorVideo=video().currentTime*1000,anchorAudio=mic.context.currentTime;
       recording=true;
@@ -244,23 +251,28 @@ window.NarrationStudio = (() => {
       meta=null;throw error;
     }finally{preparing=false;buttons();if(!recording){await updateRecovery().catch(()=>{});await refreshRecoveryBadge().catch(()=>{});}}
   }
+  function voiceSelection(){
+    if(!session||recording)return {source:'',at:0};
+    const choice=$('narrationListen').value,time=video().currentTime;
+    if(choice==='enhanced'&&session.enhanced)return {source:'/media/'+session.enhanced.id,at:time-(Number($('narrationOffset').value)||0)};
+    if(choice==='raw'&&session.master.status==='ready')return {source:'/api/narration/'+session.id+'/master?version='+session.timelineRevision+'&play=1',at:time};
+    const clip=choice==='take'?session.clips[selectedClipIndex]:choice==='raw'?session.clips.find(c=>time*session.sampleRate>=c.startFrame&&time*session.sampleRate<c.endFrame):null;
+    if(clip&&time*session.sampleRate>=clip.startFrame&&time*session.sampleRate<clip.endFrame)return {source:'/media/'+clip.mediaId,at:clip.sourceFrame/session.sampleRate+time-clip.startFrame/session.sampleRate,mapping:clip.startFrame+':'+clip.sourceFrame};
+    return {source:'',at:0};
+  }
+  function configureVoice(){
+    const selected=voiceSelection(),source=selected.source,mapping=source+':'+(selected.mapping||'');
+    selected.changed=voiceMapping!==mapping;voiceMapping=mapping;
+    if((voice().getAttribute('src')||'')!==source){
+      voicePlay=null;nextVoiceCorrection=0;previewError=false;
+      voice().pause();if(source)voice().src=source;else voice().removeAttribute('src');voice().load();
+    }
+    return selected;
+  }
   function playback(){
     if(!session)return;
     video().volume=Number($('mixMusic').value)/100;voice().volume=Number($('mixVoice').value)/100;
-    const choice=$('narrationListen').value;
-    let source=choice==='raw'&&session.master.status==='ready'?'/api/narration/'+session.id+'/master?version='+session.timelineRevision+'&play=1':
-      choice==='enhanced'&&session.enhanced?'/media/'+session.enhanced.id:'';
-    if(recording)source='';
-    if((voice().getAttribute('src')||'')!==source){
-      voicePlay=null;nextVoiceCorrection=0;previewError=false;
-      voice().pause();if(source)voice().src=source;else voice().removeAttribute('src');
-      voice().load();
-      previewStatus('Choose audio and press Play preview.');
-    }
-    if(!source&&choice!=='music')previewStatus(choice==='raw'?'Prepare the WAV master to preview saved narration.':
-      'Upload enhanced narration to preview it.');
-    // Updating levels or polling the session must not restart an audio seek.
-    syncVoice();
+    syncVoice();window.StudioTools?.changed();
   }
   function previewStatus(key,error=false){
     previewKey=key;const message=t(key);
@@ -293,10 +305,12 @@ window.NarrationStudio = (() => {
     });
   }
   function syncVoice(force=false,start=false){
-    if(!session||!voice().getAttribute('src')||recording){voice().pause();return;}
+    const selected=configureVoice();force=force||selected.changed;
+    if(!session||!selected.source||recording){voice().pause();
+      if(session&&!recording&&$('narrationListen').value!=='music')previewStatus($('narrationListen').value==='enhanced'?'Upload enhanced narration to preview it.':session.clips.length?'No narration at this position.':'Prepare the WAV master to preview saved narration.');
+      return;}
     if(previewError)return;
-    const offset=$('narrationListen').value==='enhanced'?Number($('narrationOffset').value)||0:0;
-    const at=video().currentTime-offset;
+    const at=selected.at;
     if(at<0||(voice().duration>0&&Number.isFinite(voice().duration)&&at>=voice().duration)){
       voice().pause();previewStatus('No narration at this position.');return;
     }
@@ -320,7 +334,7 @@ window.NarrationStudio = (() => {
     previewError=false;
     if(voice().error){voicePlay=null;voice().load();}
     playback();
-    if($('narrationListen').value!=='music'&&!voice().getAttribute('src'))return;
+    if($('narrationListen').value!=='music'&&!voice().getAttribute('src')&&!($('narrationListen').value==='raw'&&session.clips.length))return;
     cfg.pauseEditorAudio();
     if(video().ended)video().currentTime=0;
     syncVoice(true,true);
@@ -335,7 +349,7 @@ window.NarrationStudio = (() => {
     const ms=video().currentTime*1000;
     $('narrationElapsed').textContent=cfg.clock(ms);
     $('narrationRemaining').textContent=cfg.clock(Math.ceil(Math.max(0,session.durationMs-ms)/1000)*1000);
-    syncVoice();
+    syncVoice();window.StudioTools?.tick();
     if(recording&&meta){
       if(ms>=meta.endMs-5){safe(()=>pauseTake('Selected range recorded and saved.'));return;}
       if(meta.firstAudioTime!=null){
@@ -412,7 +426,7 @@ window.NarrationStudio = (() => {
     voicePlay=null;previewError=false;video().pause();voice().pause();
     try{
       session=await request('/api/narration/open',{method:'POST',body:{guideJobId:guideId}});
-      mixDirty=false;hasPending=false;meta=null;activeExport=false;guideJobs=[];
+      mixDirty=false;hasPending=false;meta=null;activeExport=false;guideJobs=[];selectedClipIndex=null;voiceMapping='';
       $('recordStart').value=cfg.clock(0,true);$('recordEnd').value=cfg.clock(session.durationMs,true);
       $('narrationCue').innerHTML='<option value="">'+t('Choose a rendered subtitle…')+'</option>'+session.cues.map((cue,index)=>
         '<option data-user-text value="'+index+'">'+escape(cfg.clock(cue.startMs)+' · '+cue.text.slice(0,110))+'</option>').join('');
@@ -428,7 +442,7 @@ window.NarrationStudio = (() => {
   async function close(){
     if(recording)await pauseTake();
     if(preparing||stopping)return;
-    voicePlay=null;video().pause();voice().pause();await mic.disconnect();describeMic();
+    window.StudioTools?.close();voicePlay=null;video().pause();voice().pause();await mic.disconnect();describeMic();
     clearInterval(clockTimer);clearInterval(pollTimer);$('narrationDialog').close();
     video().removeAttribute('src');video().load();voice().removeAttribute('src');voice().load();
     await refreshRecoveryBadge().catch(()=>{});
@@ -463,7 +477,7 @@ window.NarrationStudio = (() => {
       if(mixDirty&&!window.confirm(t('Discard unsaved mix settings and switch guide videos?'))){renderGuides();return;}
       try{await open(id);}catch(error){renderGuides();throw error;}
     });
-    $('narrationClips').onclick=event=>{const button=event.target.closest('[data-rerecord]');if(!button)return;
+    $('narrationClips').onclick=event=>{const listen=event.target.closest('[data-listen-take]');if(listen){window.StudioTools?.audition(Number(listen.dataset.listenTake));return;}const button=event.target.closest('[data-rerecord]');if(!button)return;
       const clip=session.clips[Number(button.dataset.rerecord)];
       $('recordStart').value=cfg.clock(clip.startFrame/session.sampleRate*1000,true);$('recordEnd').value=cfg.clock(clip.endFrame/session.sampleRate*1000,true);
       video().currentTime=clip.startFrame/session.sampleRate;
@@ -510,12 +524,16 @@ window.NarrationStudio = (() => {
     voice().addEventListener('waiting',()=>{if(!recording&&!video().paused&&!previewError)previewStatus('Loading narration…');});
     voice().addEventListener('error',()=>{if(session&&voice().getAttribute('src')&&!recording)previewFailed(voice().error);});
     document.addEventListener('visibilitychange',()=>{if(document.hidden&&recording)safe(()=>pauseTake('Recording paused because the video is no longer visible.'));});
-    window.addEventListener('pagehide',()=>safe(async()=>{if(recording)await pauseTake();await mic.disconnect();}));
-    window.addEventListener('beforeunload',event=>{if(recording||stopping||hasPending){event.preventDefault();event.returnValue='';}});
+    window.addEventListener('pagehide',()=>safe(async()=>{window.StudioTools?.close();if(recording)await pauseTake();await mic.disconnect();}));
+    window.addEventListener('beforeunload',event=>{if(recording||preparing||stopping||hasPending){event.preventDefault();event.returnValue='';}});
     document.addEventListener('languagechange',()=>{status(statusKey,statusValues);describeMic();renderSession();previewStatus(previewKey,previewError);buttons();});
+    window.StudioTools?.init({session:()=>session,video,voice,request,status,clock:cfg.clock,parse:cfg.parseClock,
+      busy:()=>recording||preparing||!!stopping||testMode,recording:()=>recording,playPreview,syncVoice,
+      pending:()=>hasPending,pendingBytes:()=>meta?Math.max(0,meta.bytes-(meta.serverOffset||0)):0,
+      selectClip:index=>{selectedClipIndex=index;$('narrationListen').value='take';playback();}});
     buttons();
   }
   return {init,open,watch,authReady:()=>safe(refreshRecoveryBadge),isRecording:()=>recording||preparing||!!stopping,
-    _test:()=>({mic,spool,get session(){return session;},beginRecord,pauseTake,saveMix,recover})};
+    _test:()=>({mic,spool,get session(){return session;},beginRecord,pauseTake,saveMix,recover,refreshSession,playback,voiceSelection})};
 })();
 

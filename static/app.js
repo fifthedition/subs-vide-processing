@@ -12,10 +12,11 @@ async function api(path, options = {}) {
   const headers={'X-CSRF-Token':state.auth?.csrf||'',...options.headers};
   const response = await fetch(path, options.body && !(options.body instanceof Blob) ? {...options, headers: {'Content-Type':'application/json', ...headers}, body: JSON.stringify(options.body)} : {...options,headers});
   const data = await response.json();
-  if (!response.ok) throw new Error(t(data.error || 'The request could not be completed.'));
+  if (!response.ok) {const error=new Error(t(data.error || 'The request could not be completed.'));error.status=response.status;throw error;}
   return data;
 }
 function toast(message, error = false) {
+  if(window.WorkspaceUX?.feedback(message,error))return;
   $('toast').textContent = t(message); $('toast').classList.toggle('error', error); $('toast').hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, error ? 7500 : 3500);
 }
@@ -49,7 +50,7 @@ function validateDraft() {
 }
 function saveLabel(text, kind = '') { $('saveState').textContent = t(text); $('saveState').className = 'save-state ' + kind; }
 function markDirty() {
-  state.dirty = true; state.generation++; saveLabel(t('Unsaved changes'), 'dirty');
+  state.dirty = true; state.generation++;window.WorkspaceUX?.changed(); saveLabel(t('Unsaved changes'), 'dirty');
   const error = validateDraft(); showValidation(error);
   clearTimeout(state.saveTimer);
   if (!error) state.saveTimer = setTimeout(() => flushSave().catch(() => {}), 900);
@@ -72,16 +73,17 @@ async function flushSave() {
         const saved = await api('/api/projects/' + payload.id, {method:'PUT', body:payload});
         state.project.revision = saved.revision; state.project.updatedAt = saved.updatedAt;
         if (generation === state.generation) state.dirty = false;
+        window.WorkspaceUX?.saved(saved,generation);
         saveLabel(state.dirty ? t('Saving…') : t('Saved'));
         const summary = state.projects.find(p => p.id === saved.id);
         if (summary) Object.assign(summary, {name:saved.name, revision:saved.revision, count:saved.segments.length, musicId:saved.musicId});
-      } catch (error) { saveLabel(t('Save needs attention'), 'error'); showValidation(error.message); throw error; }
+      } catch (error) { saveLabel(t('Save needs attention'), 'error'); showValidation(error.message);if(error.status===409)window.WorkspaceUX?.conflict(payload); throw error; }
     }
     renderProjects();
   })();
   try { await state.savePromise; } finally { state.savePromise = null; }
 }
-function pushUndo() { state.undo.push(clone(state.project.segments)); if (state.undo.length > 50) state.undo.shift(); $('undo').disabled = false; }
+function pushUndo(segments=state.project.segments) { state.undo.push(clone(segments)); if (state.undo.length > 50) state.undo.shift(); $('undo').disabled = false; }
 function backupDraft() {
   const blob = new Blob([JSON.stringify(state.project, null, 2)], {type:'application/json'});
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = (state.project.name || 'session') + '.json'; link.click();
@@ -90,7 +92,7 @@ function backupDraft() {
 function renderProjects() {
   const query = $('sessionSearch').value.toLowerCase();
   $('sessionCount').textContent = state.projects.length;
-  $('projectList').innerHTML = state.projects.filter(p => p.name.toLowerCase().includes(query)).map(p => `<button class="project-item ${p.id === state.project?.id ? 'selected' : ''}" data-project="${p.id}"><span class="project-symbol" aria-hidden="true">${p.musicId ? '♫' : '◇'}</span><span><span class="project-name" data-user-text>${escapeHTML(p.name)}</span><span class="project-meta">${escapeHTML(t('{count} cues',{count:p.count}))} · ${clock(p.endMs)}${p.musicId ? ' · '+t('Music added') : ''}</span></span></button>`).join('') || '<p class="empty-list">No matching sessions.</p>';
+  $('projectList').innerHTML = state.projects.filter(p => p.name.toLowerCase().includes(query)&&(!window.WorkspaceUX||WorkspaceUX.projectVisible(p))).map(p => `<button class="project-item ${p.id === state.project?.id ? 'selected' : ''}" data-project="${p.id}"><span class="project-symbol" aria-hidden="true">${p.musicId ? '♫' : '◇'}</span><span><span class="project-name" data-user-text>${escapeHTML(p.name)}</span><span class="project-meta">${escapeHTML(t('{count} cues',{count:p.count}))} · ${clock(p.endMs)}${p.musicId ? ' · '+t('Music added') : ''}</span></span></button>`).join('') || '<p class="empty-list">No matching sessions.</p>';
   I18n.apply($('projectList'));
 }
 async function loadReference() {
@@ -98,10 +100,10 @@ async function loadReference() {
   const doc = await api('/api/archive/' + state.project.sourceId);
   state.reference = doc.segments.map(s => ({startMs:parseClock(s.from_time), endMs:parseClock(s.to_time), text:s.text}));
 }
-async function loadProject(id) {
+async function loadProject(id,discard=false) {
   if(window.NarrationStudio?.isRecording()){toast(t('Pause and save the current recording first.'),true);return;}
   try {
-    await flushSave(); audio.pause(); $('referenceAudio').pause();
+    if(!discard)await flushSave(); audio.pause(); $('referenceAudio').pause();
     state.project = await api('/api/projects/' + id); state.previewMs = 0; state.selected = state.project.segments[0]?.id;
     document.querySelectorAll('.workspace input,.workspace button,.workspace select').forEach(element=>element.disabled=false);
     state.project.style.layout ||= 'teleprompter';
@@ -121,7 +123,7 @@ async function loadProject(id) {
     $('videoLayout').value = state.project.style.layout;
     updateThemes(); configureMusic(); renderProjects(); renderCues(); showValidation(''); saveLabel(t('Saved'));
     try { localStorage.setItem('breathwork-last-project', id); } catch {}
-    $('sidebar').classList.remove('open'); await loadJobs(); tick();
+    $('sidebar').classList.remove('open');await window.WorkspaceUX?.loaded({skipRecovery:discard}); await loadJobs(); tick();
   } catch (error) { toast(error.message, true); }
 }
 function configureMusic(reload = true) {
@@ -140,19 +142,17 @@ function showWaveform(id, retry = 0) {
   image.src = `/media/${id}/waveform.png?try=${retry}`;
 }
 function referenceFor(cue) {
-  let found, best = 0;
-  for (const source of state.reference) { const overlap = Math.max(0, Math.min(cue.endMs, source.endMs) - Math.max(cue.startMs, source.startMs)); if (overlap > best) { best = overlap; found = source; } }
-  return found?.text || '';
+  return state.reference.filter(source=>Math.min(cue.endMs,source.endMs)>Math.max(cue.startMs,source.startMs)).map(source=>source.text).join('\n');
 }
 function renderCues() {
   if (!state.project) return;
   const query = $('cueSearch').value.toLowerCase(), showReference = $('showReference').checked;
   $('cueCount').textContent = t('{count} cues',{count:state.project.segments.length});
   $('cueList').innerHTML = state.project.segments.map((cue,index) => {
-    if (query && !cue.text.toLowerCase().includes(query)) return '';
+    if ((query && !cue.text.toLowerCase().includes(query))||window.WorkspaceUX?.hideCue(cue)) return '';
     return `<article class="cue-row ${cue.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(cue.id)}"><div class="cue-time"><div class="cue-number"><span class="dot"></span>${String(index+1).padStart(2,'0')}<span class="editing-label">Editing</span></div><input data-field="startMs" aria-label="Cue ${index+1} start time" value="${clock(cue.startMs,true)}"><span class="time-divider">—</span><input data-field="endMs" aria-label="Cue ${index+1} end time" value="${clock(cue.endMs,true)}"></div><div class="cue-body">${showReference ? `<div class="reference-text" data-user-text>${escapeHTML(referenceFor(cue)) || t('No matching reference cue')}</div>` : ''}<textarea class="cue-text" aria-label="Cue ${index+1} Slovak text" spellcheck="true" lang="sk">${escapeHTML(cue.text)}</textarea></div><div class="row-tools"><button data-action="seek" title="Preview this cue" aria-label="Preview cue ${index+1}">▷</button><button data-action="split" title="Split at the text cursor" aria-label="Split cue ${index+1}">⋮</button><button data-action="merge" title="Merge with next cue" aria-label="Merge cue ${index+1} with next">⊕</button><button data-action="delete" title="Remove cue (Undo available)" aria-label="Remove cue ${index+1}">×</button></div></article>`;
   }).join('') || '<div class="empty-list">No prompts match your search.</div>';
-  I18n.apply($('cueList')); tick();
+  I18n.apply($('cueList'));window.WorkspaceUX?.decorateCues(); tick();
 }
 function selectCue(id, seek = false) {
   state.selected = id;
@@ -235,7 +235,7 @@ async function uploadMusic(file) {
 }
 function mutateCue(id, action) {
   const index = state.project.segments.findIndex(s => s.id === id), cue = state.project.segments[index]; if (!cue) return;
-  if (action === 'seek') { selectCue(id,true); return; }
+  if (action === 'seek') { selectCue(id,true);window.WorkspaceUX?.playCue(cue); return; }
   if (action === 'split') {
     const textarea = document.querySelector(`.cue-row[data-id="${CSS.escape(id)}"] textarea`);
     let position = textarea.selectionStart;
@@ -288,15 +288,16 @@ async function loadJobs() {
   if (!state.project) return;
   const projectId=state.project.id;
   try { const jobs=await api('/api/jobs?projectId='+projectId); if(state.project.id!==projectId)return; state.jobs=jobs;
-    const visibleJobs=jobs.slice(0,5),latestGuide=jobs.find(job=>job.status==='complete'&&job.kind!=='final');
+    const visibleJobs=window.WorkspaceUX?WorkspaceUX.visibleJobs(jobs):jobs.slice(0,5),latestGuide=jobs.find(job=>job.status==='complete'&&job.kind!=='final');
     if(latestGuide&&!visibleJobs.some(job=>job.id===latestGuide.id))visibleJobs.push(latestGuide);
     $('jobList').innerHTML=visibleJobs.length?visibleJobs.map(j=>{
       const completed=j.status==='complete',timestamp=completed?(j.completedAt||j.createdAt):j.createdAt;
-      return `<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${completed?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><div class="job-meta"><small>${j.kind==='final'?'Final mix · ':''}Saved revision ${j.revision}</small><small>${completed?t('Exported'):t('Requested')} ${escapeHTML(formatExportTime(timestamp))}</small></div>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${completed?`<div class="export-actions"><button class="button outline" data-watch="${j.id}">Play video</button><a href="${exportDownloadUrl(j.id)}">Download MP4 ↗</a>${j.kind!=='final'?`<button class="button outline" data-narrate="${j.id}">Open narration studio</button>`:''}</div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`;
+      return `<div class="job"><div class="job-top"><strong>${escapeHTML(j.stage)}</strong><span>${completed?'✓':j.status==='failed'?'!':Math.round(j.progress)+'%'}</span></div><div class="job-meta">${window.WorkspaceUX?WorkspaceUX.jobLabel(j):''}<small>${j.kind==='final'?'Final mix · ':''}Saved revision ${j.revision}</small><small>${completed?t('Exported'):t('Requested')} ${escapeHTML(formatExportTime(timestamp))}</small></div>${j.status==='queued'||j.status==='rendering'?`<div class="job-progress"><i style="width:${j.progress}%"></i></div>`:''}${completed?`<div class="export-actions"><button class="button outline" data-watch="${j.id}">Play video</button><a href="${exportDownloadUrl(j.id)}">Download MP4 ↗</a>${j.kind!=='final'?`<button class="button outline" data-narrate="${j.id}">Open narration studio</button>`:''}</div>`:''}${j.error?`<p class="job-error">${escapeHTML(j.error)}</p>`:''}</div>`;
     }).join(''):'<p class="empty-exports">Your finished videos will appear here.<br>Only your music and visible prompts are included.</p>';
     I18n.apply($('jobList'));
     const busy=jobs.some(j=>j.status==='queued'||j.status==='rendering'),queued=jobs.some(j=>j.status==='queued'); $('exportVideo').disabled=busy||!state.project; $('exportVideo').textContent=busy?(queued?t('Queued for export'):t('Rendering…')):(state.auth?.remote?t('↗ Send for export'):t('↗ Export MP4'));
     $('jobList').querySelectorAll('.job').forEach((element,index)=>{const job=visibleJobs[index];if(!job)return;const action=job.status==='failed'&&job.protocol?'retry':job.status==='queued'&&job.protocol?'cancel':null;if(action){const button=document.createElement('button');button.className='text-button';button.textContent=action==='retry'?t('Retry this export'):t('Cancel queued export');button.onclick=async()=>{try{await api('/api/jobs/'+job.id+'/'+action,{method:'POST',body:{}});await loadJobs();}catch(error){toast(error.message,true);}};element.append(button);}});
+    window.WorkspaceUX?.jobsChanged();
   } catch {}
 }
 async function openServices() {
@@ -467,11 +468,12 @@ document.addEventListener('languagechange',()=>{
 async function start() {
   for(const id of ['musicName','nextText','workspaceLabel','sessionDescription'])$(id).setAttribute('data-user-text','');
   bindEvents();
+  window.WorkspaceUX?.init({state,api,toast,clock,parseClock,audio,flushSave,markDirty,pushUndo,validateDraft,renderCues,renderProjects,selectCue,seekTo,totalDuration,loadProject,loadJobs});
   window.NarrationStudio?.init({api,uploadFile,toast,clock,parseClock,auth:()=>state.auth,jobsChanged:loadJobs,
     pauseEditorAudio:()=>{audio.pause();$('referenceAudio').pause();}});
   try {
     const meResponse=await fetch('/api/auth/me');if(meResponse.status===401){location.replace('/login');return;}if(!meResponse.ok)throw new Error(t('Could not load your account.'));state.auth=await meResponse.json();
-    window.NarrationStudio?.authReady();
+    window.NarrationStudio?.authReady();window.WorkspaceUX?.accountReady();
     $('workspaceLabel').textContent=state.auth.remote?state.auth.username:t('Local workspace');$('workspaceNote').textContent=state.auth.remote?t('Saved on your NAS · render on demand'):t('Editing and rendering on this computer');$('openAdmin').hidden=!state.auth.remote||state.auth.role!=='owner';$('signOut').hidden=!state.auth.remote;
     const [projects,catalog,health]=await Promise.all([api('/api/projects'),api('/api/catalog'),api('/api/health')]);state.projects=projects;state.catalog=catalog;
     if(!health.ready)showValidation(t('FFmpeg is not available yet. Editing works; install FFmpeg before adding music or exporting.'));

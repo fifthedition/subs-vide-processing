@@ -25,8 +25,9 @@ from narration import Narration
 from mixing import render_mix
 from export_queue import file_hash
 from lifecycle import Requests, Stopping, serve
+from workspace import Waveforms, storage_report
 
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.7.0"
 
 
 class Application:
@@ -43,6 +44,7 @@ class Application:
         self.uploads = Uploads(self.store)
         self.narration = Narration(self.store)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="video-export")
+        self.waveforms = Waveforms(self.store, self.executor, lambda: self.requests.closing)
         self.drafts = DraftService(self.store)
 
     def render(self, project, expected_revision):
@@ -269,6 +271,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(self.application.security.users())
         elif route == "/api/admin/workers":
             self.send_json(self.application.security.workers())
+        elif route == "/api/admin/storage":
+            self.send_json(storage_report(self.store))
         elif route == "/api/worker/info":
             self.send_json({"protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "worker": self.worker_identity})
         elif match := re.fullmatch(r"/api/worker/jobs/([a-z0-9]+)/music", route):
@@ -309,7 +313,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(self.store.catalog_by_id[match[1]])
         elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)", route):
             project = self.store.get(match[1])
-            self.send_json({**project, "music": self.store.media(project["musicId"]) if project.get("musicId") else None})
+            self.send_json({**project, "music": self.store.media(project["musicId"]) if project.get("musicId") else None,
+                "narrations": self.application.narration.list(match[1])})
+        elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)/versions(?:/(\d+))?", route):
+            self.send_json(self.store.version(match[1], int(match[2])) if match[2] else self.store.versions(match[1]))
+        elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)/narrations", route):
+            self.store.get(match[1]); self.send_json(self.application.narration.list(match[1]))
+        elif match := re.fullmatch(r"/api/media/([a-z0-9]+)/peaks", route):
+            media = self.store.media(match[1])
+            self.send_json(self.application.waveforms.get("media-" + match[1], self.store.directory / "media" / media["storedName"], media["durationMs"]))
+        elif match := re.fullmatch(r"/api/narration/([a-z0-9]+)/guide-peaks", route):
+            session = self.application.narration.get(match[1])
+            self.send_json(self.application.waveforms.get("guide-" + session["guideJobId"],
+                self.store.directory / "exports" / (session["guideJobId"] + ".mp4"), session["durationMs"]))
         elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)/subtitles\.(srt|vtt|json)", route):
             project, fmt = self.store.get(match[1]), match[2]
             content = json.dumps(project, ensure_ascii=False, indent=2) if fmt == "json" else subtitle_text(project, fmt)
@@ -355,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
             media = self.store.media(match[1])
             target = media["storedName"] if not match[2] else media["id"] + "-waveform.png"
             self.send_file(self.store.directory / "media" / target, content_type=media.get("mime") if not match[2] else "image/png")
-        elif route in ("/", "/login", "/login.js", "/i18n.js", "/app.js", "/teleprompter.js", "/recorder.js", "/recorder-worklet.js", "/narration.js", "/styles.css", "/favicon.ico", "/favicon.svg"):
+        elif route in ("/", "/login", "/login.js", "/i18n.js", "/app.js", "/teleprompter.js", "/recorder.js", "/recorder-worklet.js", "/narration.js", "/workspace.js", "/studio-tools.js", "/icons.js", "/timeline.js", "/styles.css", "/favicon.ico", "/favicon.svg"):
             filename = "index.html" if route == "/" else "login.html" if route == "/login" else route[1:]
             if route == "/" and self.application.remote:
                 try:
@@ -507,6 +523,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(self.store.save(project["id"], project), 201)
         elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)/render", route):
             self.send_json(self.application.render(self.store.get(match[1]), payload["revision"]), 202)
+        elif match := re.fullmatch(r"/api/projects/([a-z0-9]+)/(ready|restore|recover)", route):
+            if match[2] == "ready":
+                result = self.store.save(match[1], payload, self.user["username"], "Script ready", ready=True)
+            elif match[2] == "recover":
+                result = self.store.recover(match[1], payload.get("draft"), self.user["username"])
+            else:
+                result = self.store.restore(match[1], payload, self.user["username"])
+            self.send_json(result)
         else:
             raise KeyError("Action not found.")
 
@@ -553,7 +577,7 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/([a-z0-9]+)", urlsplit(self.path).path)
             if not match:
                 raise KeyError("Session not found.")
-            self.send_json(self.store.save(match[1], self.read_json()))
+            self.send_json(self.store.save(match[1], self.read_json(), self.user["username"]))
         self.guarded(update)
 
 

@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certi
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py studio.py services.py security.py export_queue.py uploads.py teleprompter.py narration.py mixing.py lifecycle.py manage.py ./
+COPY app.py studio.py services.py security.py export_queue.py uploads.py teleprompter.py narration.py mixing.py lifecycle.py workspace.py manage.py ./
 COPY static/ ./static/
 RUN mkdir /data && chown studio:studio /data
 USER studio

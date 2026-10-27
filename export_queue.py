@@ -12,7 +12,7 @@ import subprocess
 import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from studio import ConflictError, ValidationError, make_frame, normalize_project, now, uid
+from studio import ConflictError, ValidationError, make_frame, normalize_project, now, uid, render_signature
 
 PROTOCOL = 1
 RENDERER_VERSION = "0.6.0"
@@ -100,7 +100,7 @@ class ExportQueue:
         snapshot = {key: copy.deepcopy(project[key]) for key in ("id", "name", "revision", "segments", "cueOffsetMs", "style")}
         job = {"id": uid(), "projectId": project["id"], "projectName": project["name"], "revision": revision,
                "status": "queued", "progress": 0, "stage": "Queued — waiting for renderer", "createdAt": now(),
-               "error": None, "kind": "guide", "protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "snapshot": snapshot, "music": music}
+               "error": None, "kind": "guide", "renderSignature": render_signature(project), "protocol": PROTOCOL, "rendererVersion": RENDERER_VERSION, "snapshot": snapshot, "music": music}
         with self.store.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             # Serialize double clicks, separate editor tabs and saves during preflight.
@@ -156,7 +156,17 @@ class ExportQueue:
             db.execute("BEGIN IMMEDIATE")
             self._expire(db)
             jobs = [json.loads(r[0]) for r in db.execute("SELECT payload FROM jobs")]
-        return [public_job(j) for j in sorted(jobs, key=lambda j: j["createdAt"], reverse=True) if project_id is None or j["projectId"] == project_id]
+        by_id = {job["id"]: job for job in jobs}
+        result = []
+        for job in sorted(jobs, key=lambda j: j["createdAt"], reverse=True):
+            if project_id is not None and job["projectId"] != project_id:
+                continue
+            item = public_job(job)
+            guide = by_id.get(job.get("guideJobId")) if job.get("kind") == "final" else job
+            if guide and guide.get("snapshot") and guide.get("music", {}).get("id"):
+                item["renderSignature"] = guide.get("renderSignature") or render_signature({**guide["snapshot"], "musicId": guide["music"]["id"]})
+            result.append(item)
+        return result
 
     def _expire(self, db):
         for row in db.execute("SELECT payload FROM jobs").fetchall():

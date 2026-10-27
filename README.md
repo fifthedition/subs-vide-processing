@@ -1,6 +1,6 @@
 # Breathwork Studio
 
-Edit Slovak meditation prompts in a browser, synchronize them with a separate music-only track, and export a teleprompter video. The video shows fixed previous/current/next text, elapsed time, remaining music time and a prompt countdown. The guide speaks live; no narrator voice is added.
+Edit Slovak meditation prompts in a browser, synchronize them with a separate music-only track, and export a teleprompter video. The video shows fixed previous/current/next text, elapsed time, remaining music time and a prompt countdown. Use the guide to speak live, or record narration, enhance it in Adobe Podcast and export a final narrated mix.
 
 The NAS hosts the editor and stores projects, audio, exports and the persistent queue. An editor clicks **Send for export**. The owner later launches **Render-Queued-Videos.command** on a Mac. The Mac connects to the NAS over HTTPS, renders queued jobs one at a time, uploads the MP4s, and exits when the queue is empty. There is no daemon, login item, inbound Mac port or scheduled poll.
 
@@ -11,6 +11,9 @@ The NAS hosts the editor and stores projects, audio, exports and the persistent 
 - [Architecture, recovery and access controls](docs/ARCHITECTURE.md)
 - [Verification and remaining deployment checks](VERIFICATION.md)
 - [Clean shutdown and Synology stop troubleshooting](docs/SHUTDOWN.md)
+- [Next-build fixes and improvement ideas](docs/ROADMAP.md)
+- [Design research and implementation direction](docs/DESIGN-RESEARCH.md)
+- [Workspace, review, recording and recovery controls](docs/WORKSPACE.md)
 
 ## Local editing
 
@@ -42,7 +45,7 @@ The editor supports timed cue editing, split/merge, undo, automatic saving with 
 
 All new exports are **1920 × 1080**, H.264 at CRF 16. Older 720p projects open and export in Full HD without changing cue text, timing or revision. Already completed files remain available as originally rendered.
 
-Exports always have **two audio channels**. Stereo AAC is copied unchanged, preserving the original audio quality and sample rate. Other formats are encoded to AAC at a 320 kb/s target, retaining the source sample rate where AAC supports it (otherwise the nearest supported rate). Stereo left/right channels remain separate; no normalization or voice is added. Mono is duplicated into both channels at the original level; it cannot create a spatial stereo recording. Multichannel sources use FFmpeg's stereo downmix. Lossless WAV/FLAC bit depth cannot be inherited by lossy AAC. Actual AAC bitrate depends on content.
+Exports always have **two audio channels**. Stereo AAC is copied unchanged, preserving the original audio quality and sample rate. Other formats are encoded to AAC at a 320 kb/s target, retaining the source sample rate where AAC supports it (otherwise the nearest supported rate). Stereo left/right channels remain separate. Guide exports contain music and prompts; final mixes add the enhanced voice at your chosen level. Mono is duplicated into both channels at the original level; it cannot create a spatial stereo recording. Multichannel sources use FFmpeg's stereo downmix. Lossless WAV/FLAC bit depth cannot be inherited by lossy AAC. Actual AAC bitrate depends on content.
 
 Optional ElevenLabs and DeepL keys are configured by the owner in **Services & API keys**. Creating an audio draft sends the source recording to ElevenLabs for timed transcription and sends text to DeepL for Slovak translation. Charges can apply. No provider call is made just by saving keys. Review drafts before guiding live. Source recordings remain available for review and cannot be selected as the final music track.
 
@@ -59,4 +62,4 @@ npm test
 
 CI runs the suite, builds the Linux image and checks startup/authentication, SIGTERM shutdown with/without Docker init, idle connections, and restart persistence. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
 
-App version: **0.6.2**. Renderer compatibility: **0.6.0**, protocol 1. This patch fixes narration preview seeking, adds a direct Play preview control and displays playback failures inside the studio; existing 0.6.0 workers and queued jobs remain compatible. When upgrading from 0.5.x, update the Mac checkout for narration/final-mix jobs and drain or cancel/resubmit old queued exports. The existing Keychain pairing stays valid. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.
+App version: **0.7.0**. Renderer compatibility: **0.6.0**, protocol 1. This release adds task views, bilingual review and handoff, immediate take playback, recording timelines and lead-in, subtitle version recovery, archive/favorites and owner storage information; existing 0.6.0 workers and queued jobs remain compatible. When upgrading from 0.5.x, update the Mac checkout for narration/final-mix jobs and drain or cancel/resubmit old queued exports. The existing Keychain pairing stays valid. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.
