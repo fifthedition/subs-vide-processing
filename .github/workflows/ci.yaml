@@ -6,6 +6,9 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -17,10 +20,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y ffmpeg
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
-      - run: node --check static/app.js && node --check static/login.js && node --check static/i18n.js
+      - run: node --check static/app.js && node --check static/login.js && node --check static/i18n.js && node --check static/recorder.js && node --check static/recorder-worklet.js && node --check static/narration.js
       - run: npm ci --ignore-scripts && npm test
       - name: Build the public image
         run: docker build -t breathwork-ci .

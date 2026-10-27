@@ -20,6 +20,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from export_queue import PROTOCOL, RENDERER_VERSION, CHUNK_BYTES, file_hash
 from studio import ValidationError, render_video
+from mixing import render_mix
 
 CONFIG_ROOT = Path.home() / "Library/Application Support/BreathworkStudio"
 CACHE_ROOT = Path.home() / "Library/Caches/BreathworkStudio"
@@ -70,8 +71,8 @@ class Client:
                     raise WorkerError("Cannot reach the NAS. Check the connection and run the renderer again.") from None
             time.sleep(attempt + 1)
 
-    def download(self, job, destination, progress):
-        music = job["music"]
+    def download(self, job, destination, progress, asset="music"):
+        music = job[asset]
         if destination.exists() and destination.stat().st_size == music["bytes"] and file_hash(destination) == music["sha256"]:
             return
         partial = destination.with_suffix(destination.suffix + ".part")
@@ -80,7 +81,7 @@ class Client:
             if offset >= music["bytes"]:
                 partial.unlink()
                 offset = 0
-            request = Request(self.url + "/api/worker/jobs/" + job["id"] + "/music", headers={
+            request = Request(self.url + "/api/worker/jobs/" + job["id"] + "/" + asset, headers={
                 "Authorization": "Bearer " + self.token, "X-Render-Attempt": job["attempt"], "Range": f"bytes={offset}-"})
             try:
                 with build_opener(NoRedirect).open(request, timeout=60) as response:
@@ -94,7 +95,8 @@ class Client:
                     with partial.open("ab" if offset else "wb") as output:
                         while chunk := response.read(CHUNK_BYTES):
                             output.write(chunk)
-                            progress(0, f"Downloading music · {output.tell() / music['bytes']:.0%}")
+                            label = "Downloading enhanced narration" if asset == "voice" else "Downloading guide video" if job.get("kind") == "final" else "Downloading music"
+                            progress(0, f"{label} · {output.tell() / music['bytes']:.0%}")
                 if partial.stat().st_size != music["bytes"]:
                     raise OSError("Incomplete download")
                 if file_hash(partial) != music["sha256"]:
@@ -176,13 +178,22 @@ def process_job(client, job, cache):
     output = output_dir / (job["id"] + ".mp4")
     # An immutable job can reuse a fully rendered local MP4 after an upload failure.
     manifest_path = output.with_suffix(".json")
-    fingerprint = file_hash_bytes(json.dumps({"project": job["project"], "music": job["music"]["sha256"], "renderer": RENDERER_VERSION}, sort_keys=True).encode())
+    fingerprint = file_hash_bytes(json.dumps({"project": job["project"], "music": job["music"]["sha256"],
+        "voice": job.get("voice", {}).get("sha256") if job.get("voice") else None,
+        "mix": job.get("mix"), "kind": job.get("kind"), "renderer": RENDERER_VERSION}, sort_keys=True).encode())
     with keep_awake(), Heartbeat(client, job) as heartbeat:
         client.download(job, music, heartbeat.report)
         music.touch()
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
         if not output.exists() or manifest.get("fingerprint") != fingerprint or manifest.get("sha256") != file_hash(output):
-            render_video(job["project"], music, output, lambda value, stage: heartbeat.report(value * .9, stage))
+            report = lambda value, stage: heartbeat.report(value * .9, stage)
+            if job.get("kind") == "final":
+                voice = media_dir / (job["voice"]["sha256"] + Path(job["voice"]["storedName"]).suffix)
+                client.download(job, voice, heartbeat.report, "voice")
+                voice.touch()
+                render_mix(music, voice, output, job["mix"], report)
+            else:
+                render_video(job["project"], music, output, report)
             manifest = {"fingerprint": fingerprint, "sha256": file_hash(output), "bytes": output.stat().st_size}
             manifest_path.write_text(json.dumps(manifest))
         begin = {"attempt": job["attempt"], "bytes": manifest["bytes"], "sha256": manifest["sha256"]}

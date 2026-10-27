@@ -250,7 +250,7 @@ class Store:
             previous = json.loads(row["payload"])
             project = normalize_project({**previous, **{k: payload[k] for k in ("name", "segments", "sourceId", "cueOffsetMs", "style", "musicId") if k in payload}})
             if project.get("musicId"):
-                if self.media(project["musicId"]).get("purpose") == "reference":
+                if self.media(project["musicId"]).get("purpose") not in (None, "music"):
                     raise ValidationError("Choose your separate music-only track. Source recordings are for transcription and review.")
             if project.get("sourceId") is not None and str(project["sourceId"]) not in self.catalog_by_id:
                 raise ValidationError("Unknown reference subtitle.")

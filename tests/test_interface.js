@@ -58,6 +58,11 @@ test('Slovak is default; static labels, accessible names and dynamic exports tra
     assert.match(w.document.getElementById('jobList').textContent,/Uložená verzia 5/);
     assert.match(w.document.getElementById('jobList').textContent,/Stiahnuť MP4/);
     assert.equal(w.document.getElementById('remainingTime').textContent,'00:08');
+    let editorPlay=0;w.document.getElementById('audio').play=()=>{editorPlay++;return Promise.resolve();};
+    w.document.getElementById('watchDialog').open=true;
+    w.document.getElementById('watchVideo').dispatchEvent(new w.KeyboardEvent('keydown',{code:'Space',bubbles:true}));
+    assert.equal(editorPlay,0,'Video player shortcuts must not start the editor music');
+    w.document.getElementById('watchDialog').open=false;
     assert.equal(w.i18n.t('Cues 3 and 4 overlap. Adjust their times.'),'Texty 3 a 4 sa prekrývajú. Upravte ich časy.');
     assert.equal(w.i18n.t('That file could not be read as audio.'),'Súbor sa nepodarilo prečítať ako zvuk.');
   }finally{dom.window.close();}
@@ -148,8 +153,12 @@ test('all static interface copy has a Slovak translation; favicon and 1080p cont
   for(const name of ['index.html','login.html']){
     const dom=new JSDOM(read(name),{url:'https://studio.example',runScripts:'outside-only'}),w=dom.window;
     try{
+      const originals=[],sourceWalker=w.document.createTreeWalker(w.document,w.NodeFilter.SHOW_TEXT);let textNode;
+      while((textNode=sourceWalker.nextNode()))if(!textNode.parentElement?.closest('script,style'))originals.push(textNode.textContent.trim());
+      for(const element of w.document.querySelectorAll('[aria-label],[title],[placeholder]'))for(const attribute of ['aria-label','title','placeholder'])if(element.hasAttribute(attribute))originals.push(element.getAttribute(attribute));
       w.eval(read('i18n.js')+'\nwindow.i18n=I18n;');
       const exempt=/^(?:Breathwork Studio|BREATHWORK STUDIO|Breathwork|Studio|SK|EN|VTT ↗|Full HD · 1080p|[\d\W]+)$/u;
+      assert.deepEqual(originals.filter(text=>/[A-Za-z]/.test(text)&&!exempt.test(text)&&!['0 dB','−60 dBFS'].includes(text)&&!Object.hasOwn(w.i18n.dictionary,text)),[]);
       const walker=w.document.createTreeWalker(w.document,w.NodeFilter.SHOW_TEXT);let node;
       const missing=[];
       while((node=walker.nextNode())){

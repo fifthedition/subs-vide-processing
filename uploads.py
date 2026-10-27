@@ -29,7 +29,7 @@ class Uploads:
         purpose = payload.get("purpose", "music")
         size = int(payload.get("bytes", 0))
         key = str(payload.get("key", ""))
-        if purpose not in ("music", "reference") or not 0 < size <= 4 * 1024 ** 3 or not 1 <= len(key) <= 200:
+        if purpose not in ("music", "reference", "enhanced") or not 0 < size <= 4 * 1024 ** 3 or not 1 <= len(key) <= 200:
             raise ValidationError("Choose music or source audio smaller than 4 GB.")
         extension = Path(name).suffix.lower()
         if extension not in (".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aif", ".aiff", ".mp4"):

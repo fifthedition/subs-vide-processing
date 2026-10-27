@@ -6,6 +6,7 @@ The NAS hosts the editor and stores projects, audio, exports and the persistent 
 
 - [Deploy on Synology and configure Nginx Proxy Manager](docs/NAS-SETUP.md)
 - [Pair and run the Mac renderer](docs/MAC-RENDERER.md)
+- [Microphone check, narration, Adobe processing and final mix](docs/NARRATION.md)
 - [Publish the public Docker image](docs/RELEASING.md)
 - [Architecture, recovery and access controls](docs/ARCHITECTURE.md)
 - [Verification and remaining deployment checks](VERIFICATION.md)
@@ -27,6 +28,10 @@ A clean installation starts empty. Import `examples/sample-session.json`, add `e
 Private subtitle archives are deliberately excluded from this repository and the public image. To migrate the existing app with all preserved English/Slovak documents and corrections, follow the NAS guide. Existing archives can also be mounted privately as `data/subtitles.json`.
 
 Completed exports show their full date, time and timezone. Downloads include the saved revision, export timestamp with UTC offset, and a short export ID in the filename. Dates use the browser’s timezone, including for older migrated exports.
+
+## Narration
+
+Completed guides are playable in the app. Editors can independently check their microphone, record a high-quality WAV while watching a guide, pause/resume, replace sections and undo. Original takes and a full-timeline master WAV remain on the NAS. After manual Adobe Podcast enhancement, upload the processed voice, check alignment and levels, then queue a final Mac mix. Final exports copy the existing subtitle video and retain stereo music. See [the narration guide](docs/NARRATION.md).
 
 ## Editing and drafts
 
@@ -53,4 +58,4 @@ npm test
 
 CI runs the suite, builds the Linux image and checks its startup/authentication defaults. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
 
-App and renderer compatibility version: **0.5.0**, protocol 1. Update both the NAS image and Mac checkout for the new video/audio settings; the existing Keychain pairing stays valid. Drain old queued exports before updating, or cancel and send them again afterward. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.
+App and renderer compatibility version: **0.6.0**, protocol 1. Update both the NAS image and Mac checkout for the narration and final-mix jobs; the existing Keychain pairing stays valid. Drain old queued exports before updating, or cancel and send them again afterward. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.

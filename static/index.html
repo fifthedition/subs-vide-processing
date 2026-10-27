@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Prepare Slovak breathwork prompts, synchronize them with your music, and export a session video.">
-  <title>Breathwork Studio</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="alternate icon" href="/favicon.ico"><meta name="theme-color" content="#1746c6"><link rel="stylesheet" href="/styles.css"><script src="/i18n.js" defer></script><script src="/teleprompter.js" defer></script><script src="/app.js" defer></script>
+  <title>Breathwork Studio</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="alternate icon" href="/favicon.ico"><meta name="theme-color" content="#1746c6"><link rel="stylesheet" href="/styles.css"><script src="/i18n.js" defer></script><script src="/teleprompter.js" defer></script><script src="/recorder.js" defer></script><script src="/narration.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
@@ -13,6 +13,8 @@
     <nav id="projectList" class="project-list" aria-label="Sessions"></nav>
     <button class="new-session" id="newSession">＋ <span>From saved subtitles</span></button>
     <button class="new-session draft-entry" id="newDraft">＋ <span>From audio or subtitles</span></button>
+    <button class="new-session" id="openMicCheck">◉ <span>Microphone check</span></button>
+    <button class="new-session" id="openRecordingRecovery" hidden>↶ <span>Recover recordings</span></button>
     <div class="sidebar-footer"><span class="status-dot"></span><span><span id="workspaceLabel">Workspace</span><small id="workspaceNote">Slovak prompts and your music</small><button class="text-button" id="openServices">Services &amp; API keys</button><button class="text-button" id="openAdmin" hidden>People &amp; Mac renderers</button><button class="text-button" id="signOut" hidden>Sign out</button></span></div>
   </aside>
   <main class="workspace">
@@ -93,5 +95,43 @@
     <form id="addWorkerForm" class="service-form"><label>Renderer name<input id="workerName" value="My MacBook" required maxlength="100"></label><button class="button outline" type="submit">Create renderer token</button></form>
     <div id="newWorkerToken" hidden><p>Copy this token now. It is shown only once.</p><textarea id="workerToken" rows="3" readonly aria-label="New renderer token"></textarea><button class="button outline" id="copyWorkerToken">Copy token</button></div><p id="adminError" class="validation" role="alert" hidden></p>
   </dialog>
+  <dialog id="micDialog" class="mic-dialog">
+    <div class="dialog-heading"><div><h2>Microphone check</h2><p>Check your microphone before opening a video or recording narration.</p></div><button id="closeMicCheck" class="icon-button" aria-label="Close microphone check">×</button></div>
+    <p class="provider-note">Use headphones. Only your microphone is recorded; the music stays separate.</p>
+    <div class="service-form">
+      <label>Microphone<select id="micDevice"><option value="">System default microphone</option></select></label>
+      <div class="mic-actions"><button class="button primary" id="micEnable">Enable microphone</button><button class="button outline" id="micRefresh">Refresh microphones</button><button class="button outline" id="micDisable">Turn microphone off</button></div>
+      <p id="micConnection" role="status">Microphone is off.</p>
+      <label>Recording gain <span class="gain-control"><input id="micGain" type="range" min="-12" max="12" step="1" value="0"><output id="micGainValue">0 dB</output></span></label>
+      <div class="mic-meter" role="meter" aria-label="Microphone input level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60"><i id="micLevelBar"></i></div>
+      <p class="mic-level-readout"><span id="micLevelValue">−60 dBFS</span><strong id="micLevelState">Speak to test the microphone.</strong></p>
+      <p id="micSettings" class="setting-help"></p>
+      <p class="setting-help">Raw recording requests echo cancellation, noise suppression and automatic gain control off. Actual device settings are shown here. Adjust the hardware input level in macOS Sound settings if needed.</p>
+      <button class="button outline" id="micTest">Record a 10-second test</button>
+      <audio id="micTestPlayback" controls preload="none" hidden></audio><a id="micTestDownload" hidden>Download microphone test WAV</a>
+      <p class="setting-help">The microphone test stays in this browser and is discarded when this page closes.</p>
+    </div>
+  </dialog>
+  <dialog id="watchDialog" class="watch-dialog"><div class="dialog-heading"><h2>Rendered video</h2><button id="closeWatch" class="icon-button" aria-label="Close video player">×</button></div><video id="watchVideo" controls playsinline preload="metadata"></video></dialog>
+  <dialog id="narrationDialog" class="narration-dialog">
+    <div class="dialog-heading"><div><h2>Narration studio</h2><p id="narrationVersion"></p></div><button id="closeNarration" class="icon-button" aria-label="Close narration studio">×</button></div>
+    <label class="narration-select">Guide video version<select id="narrationGuide"></select></label>
+    <div class="narration-layout"><div class="narration-player-column">
+      <video id="guideVideo" controls playsinline preload="metadata"></video>
+      <div class="narration-clock"><span>Elapsed <strong id="narrationElapsed">00:00</strong></span><span>Remaining <strong id="narrationRemaining">00:00</strong></span></div>
+      <p id="narrationStatus" role="status">Ready to record.</p>
+      <div class="mic-meter compact" role="meter" aria-label="Recording input level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60"><i id="studioMicLevelBar"></i></div><p id="studioMicLevelState" class="setting-help">Speak to test the microphone.</p>
+      <div class="mic-actions"><button id="studioMicCheck" class="button outline">Microphone check</button><button id="recordRange" class="button primary">Record selected range</button><button id="resumeNarration" class="button outline">Resume from playhead</button><button id="pauseNarration" class="button outline" disabled>Pause and save take</button></div>
+      <div class="narration-range"><label>Range start<input id="recordStart" value="00:00:00.000" aria-label="Recording range start"></label><label>Range end<input id="recordEnd" value="00:00:00.000" aria-label="Recording range end"></label></div>
+      <label class="narration-select">Use a subtitle range<select id="narrationCue"><option value="">Choose a rendered subtitle…</option></select></label>
+      <p class="setting-help">Pause saves a take. Resume continues at the playhead. Recording a range replaces only that time; original takes are retained and can be restored with Undo.</p>
+      <div class="narration-section"><div class="panel-title"><h3>Saved narration</h3><button id="undoNarration" class="button outline">Undo last recording</button></div><div id="narrationClips"></div><div id="narrationRecovery"></div></div>
+      <div class="narration-section"><h3>WAV for Adobe Podcast</h3><p>Prepare the full-length WAV, enhance it manually in Adobe Podcast, then upload the enhanced file here. Keep its timing and silence intact.</p><p id="narrationMasterState"></p><button id="prepareNarrationMaster" class="button outline">Prepare narration WAV</button> <a id="downloadNarrationMaster" class="button primary" hidden>Download WAV for Adobe Podcast</a><p class="setting-help">48 kHz · 24-bit mono WAV · full video timeline, including silence.</p></div>
+    </div><aside class="narration-mix-column">
+      <div class="narration-section"><h3>Enhanced narration</h3><label>Processed WAV version<input id="enhancedBasisVersion" type="number" min="1" step="1"></label><label class="check-row"><input id="enhancedVersionConfirm" type="checkbox">This file was processed from the WAV version shown above.</label><label>Upload enhanced audio<input id="enhancedFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.aac,.aif,.aiff"></label><p id="enhancedName" data-user-text></p><p id="enhancedState"></p></div>
+      <div class="narration-section"><h3>Listen and align</h3><label>Preview audio<select id="narrationListen"><option value="music">Music only</option><option value="raw">Saved narration and music</option><option value="enhanced">Enhanced narration and music</option></select></label><label>Voice offset in seconds<input id="narrationOffset" type="number" value="0" step="0.01"></label><p class="setting-help">Positive values play the voice later. Check synchronization near the beginning and end after Adobe enhancement.</p><label>Music level <span class="gain-control"><input id="mixMusic" type="range" min="0" max="100" value="25"><output id="mixMusicValue">25%</output></span></label><label>Voice level <span class="gain-control"><input id="mixVoice" type="range" min="1" max="100" value="100"><output id="mixVoiceValue">100%</output></span></label><label class="check-row"><input id="narrationAlignment" type="checkbox">I checked synchronization at the beginning and end.</label><button id="saveNarrationMix" class="button outline">Save mix settings</button><button id="queueNarrationFinal" class="button primary">Send final mix to Mac renderer</button><p class="setting-help">The final file keeps the subtitle video and mixes the enhanced voice with stereo music.</p></div>
+    </aside></div><audio id="narrationVoice" preload="metadata" hidden></audio>
+  </dialog>
+  <dialog id="recordingRecoveryDialog"><div class="dialog-heading"><div><h2>Recover recordings</h2><p>Reopen the matching video to finish uploading and save an interrupted take.</p></div><button id="closeRecordingRecovery" class="icon-button" aria-label="Close recording recovery">×</button></div><div id="recordingRecoveryList"></div></dialog>
 </body>
 </html>
