@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+*.zip
+.DS_Store
+archive/
+nas-data/
+.env
+*.token
+setup-code
+.worker-config/

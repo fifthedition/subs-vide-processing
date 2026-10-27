@@ -1,0 +1,32 @@
+{
+  "name": "Motivácia · ukážka telepromptera",
+  "cueOffsetMs": 0,
+  "segments": [
+    {
+      "id": "intro",
+      "startMs": 1000,
+      "endMs": 6500,
+      "text": "Nadýchni sa. Vnímaj pokoj a priestor okolo seba."
+    },
+    {
+      "id": "release",
+      "startMs": 8000,
+      "endMs": 13500,
+      "text": "S výdychom uvoľni ramená a dovoľ telu zmäknúť."
+    },
+    {
+      "id": "continue",
+      "startMs": 15000,
+      "endMs": 20500,
+      "text": "Pokračuj vlastným tempom. Dopraj si túto chvíľu pre seba."
+    }
+  ],
+  "style": {
+    "fontSize": 72,
+    "background": "#000000",
+    "color": "#ffffff",
+    "width": 1280,
+    "height": 720,
+    "layout": "teleprompter"
+  }
+}

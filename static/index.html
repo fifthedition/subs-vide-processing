@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Prepare Slovak breathwork prompts, synchronize them with your music, and export a session video.">
+  <title>Breathwork Studio</title><link rel="stylesheet" href="/styles.css"><script src="/teleprompter.js" defer></script><script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/" aria-label="Breathwork Studio home"><span class="brand-mark"><i></i><i></i><i></i></span><span>breathwork<span class="brand-sub">STUDIO</span></span></a>
+    <div class="library-heading"><span>YOUR SESSIONS</span><span id="sessionCount" class="count">13</span></div>
+    <label class="search-box"><span aria-hidden="true">⌕</span><input id="sessionSearch" type="search" placeholder="Find a session…" aria-label="Find a session"></label>
+    <nav id="projectList" class="project-list" aria-label="Sessions"></nav>
+    <button class="new-session" id="newSession">＋ <span>From saved subtitles</span></button>
+    <button class="new-session draft-entry" id="newDraft">＋ <span>From audio or subtitles</span></button>
+    <div class="sidebar-footer"><span class="status-dot"></span><span><span id="workspaceLabel">Workspace</span><small id="workspaceNote">Slovak prompts and your music</small><button class="text-button" id="openServices">Services &amp; API keys</button><button class="text-button" id="openAdmin" hidden>People &amp; Mac renderers</button><button class="text-button" id="signOut" hidden>Sign out</button></span></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar">
+      <button class="icon-button mobile-nav" id="mobileNav" aria-label="Choose session">☰</button>
+      <div class="breadcrumb">WORKSPACE <span>/</span> <strong>Session editor</strong></div>
+      <div class="top-actions"><span class="save-state" id="saveState">Loading…</span><button class="button subtle" id="saveProject">Save now</button><button class="button primary" id="exportVideo"><span aria-hidden="true">↗</span> Send for export</button></div>
+    </header>
+    <section class="session-heading">
+      <div><div class="eyebrow">MAKE SPACE FOR YOUR VOICE</div><input class="session-title" id="projectName" aria-label="Session name" value="Your session"><p id="sessionDescription">Slovak prompts. Your music. Your guidance.</p></div>
+      <div class="session-badges"><span class="pill">SK · Slovak</span><span class="pill muted">Live guidance</span><button class="icon-button" id="duplicateProject" title="Duplicate session" aria-label="Duplicate session">⧉</button></div>
+    </section>
+    <div id="validation" class="validation" role="alert" hidden></div>
+    <section class="music-panel" id="musicDrop" aria-label="Music track">
+      <div class="music-icon" aria-hidden="true">♫</div><div class="music-info"><strong id="musicName">Add your music-only track</strong><span id="musicDescription">Drop an MP3, WAV, or M4A here to bring this session to life.</span></div><input id="musicFile" type="file" accept="audio/*,.mp4" hidden><button class="button outline" id="chooseMusic">Choose music <span aria-hidden="true">＋</span></button>
+    </section>
+    <section class="transport" aria-label="Session playback">
+      <button class="play-button" id="playPause" aria-label="Play music" disabled>▶</button>
+      <div class="timeline"><div class="timeline-top"><span class="time-current" id="currentTime">00:00</span><span id="timelineHint">Preview prompts before adding music</span><span class="time-end" id="totalTime">00:00</span></div><div class="seek-track" id="seekTrack"><img id="waveform" alt="" hidden><div class="seek-fill" id="seekFill"></div><input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Session position"></div></div>
+      <button class="icon-button" id="rewind" title="Back five seconds" aria-label="Back five seconds">↶<small>5</small></button>
+    </section>
+    <div class="editor-layout">
+      <section class="editor-panel">
+        <div class="panel-top"><div class="panel-title"><span class="tiny-icon">≡</span><h2>Slovak script</h2><span id="cueCount" class="count">0 cues</span></div><div class="editor-actions"><button id="undo" class="icon-button" title="Undo last edit" aria-label="Undo last edit" disabled>↶</button><button id="addCue" class="small-action">＋ Add cue</button><button id="importSubtitles" class="small-action">↓ Import</button><input id="subtitleFile" type="file" accept=".srt,.vtt,.json" hidden><button id="backupProject" class="small-action" title="Download project backup">Backup</button></div></div>
+        <div class="reference-bar"><label><input id="showReference" type="checkbox"> Show reference</label><select id="sourceSelect" aria-label="Reference subtitle document"></select><label class="cue-search"><input id="cueSearch" type="search" placeholder="Search the script…" aria-label="Search cues"></label></div>
+        <div id="sourceReview" class="source-review" hidden><span>Original voice · review only</span><audio id="referenceAudio" controls preload="none"></audio></div>
+        <div class="column-labels"><span>CUE / TIME</span><span>WHAT YOU’LL SAY</span><span></span></div>
+        <div id="cueList" class="cue-list" aria-label="Subtitle cues"></div>
+        <div class="editor-footer"><span><span class="status-dot"></span> Edits save automatically</span><button id="downloadSrt" class="text-button">Download SRT ↗</button><button id="downloadVtt" class="text-button">VTT ↗</button></div>
+      </section>
+      <aside class="preview-column">
+        <section class="preview-panel">
+          <div class="panel-top"><div class="panel-title"><span class="live-dot"></span><h2>Video preview</h2></div><button id="presenter" class="icon-button" aria-label="Open fullscreen presenter" title="Fullscreen presenter">⛶</button></div>
+          <div id="previewStage" class="preview-stage"><canvas id="previewCanvas" width="1920" height="1080" aria-label="Preview of the Slovak prompt in your video"></canvas><div class="presenter-hud"><button id="exitPresenter" class="button outline">Exit fullscreen</button><button id="presenterPlay" class="button primary">Play / pause</button></div></div>
+          <div class="preview-caption"><span id="previewStatus">CURRENT PROMPT</span><span id="previewCueTime">00:00 — 00:03</span></div>
+          <div class="next-prompt"><div class="next-label">UP NEXT <span id="nextCountdown"></span></div><p id="nextText">Choose a session to begin.</p></div>
+        </section>
+        <section class="appearance-panel">
+          <div class="section-label">VIDEO APPEARANCE</div>
+          <label class="setting-row">Text layout <select id="videoLayout"><option value="teleprompter">Previous · current · next</option><option value="single">Single prompt</option></select></label>
+          <p class="setting-help">Teleprompter includes fixed text areas, elapsed time, time remaining, and a cue countdown in the video.</p>
+          <div class="themes" role="group" aria-label="Video color theme"><button data-theme="midnight" class="theme selected"><i class="swatch midnight"></i>Midnight</button><button data-theme="black" class="theme"><i class="swatch black"></i>Black</button><button data-theme="paper" class="theme"><i class="swatch paper"></i>Paper</button></div>
+          <label class="setting-row">Text size <span><input id="fontSize" type="range" min="28" max="100" value="52"><output id="fontSizeValue">52</output></span></label>
+          <label class="setting-row">Video size <select id="resolution"><option value="1920">Full HD · 1080p</option><option value="1280">HD · 720p</option></select></label>
+          <div class="setting-divider"></div><label class="setting-row">Prompt offset <span class="number-unit"><input id="cueOffset" type="number" value="0" step="0.1" aria-label="Prompt offset in seconds"><span>sec</span></span></label><p class="setting-help">Positive values show prompts later. Music always starts at 00:00.</p>
+        </section>
+        <section class="exports-panel"><div class="section-label">YOUR EXPORTS <span id="renderReady" class="ready-badge">MUSIC + SLOVAK TEXT</span></div><div id="jobList"><p class="empty-exports">Your finished videos will appear here.<br>Only your music and visible prompts are included.</p></div></section>
+      </aside>
+    </div>
+  </main>
+  <audio id="audio" preload="metadata"></audio>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="archiveDialog"><div class="dialog-heading"><div><div class="eyebrow">PRESERVED LIBRARY</div><h2>Start from a saved script</h2><p>All 35 original documents are kept here.</p></div><button id="closeArchive" class="icon-button" aria-label="Close">×</button></div><input id="archiveSearch" type="search" class="dialog-search" placeholder="Search English or Slovak versions…" aria-label="Search archived subtitles"><div id="archiveList" class="archive-list"></div></dialog>
+  <dialog id="draftDialog"><div class="dialog-heading"><div><div class="eyebrow">PREPARE YOUR NEXT SESSION</div><h2>Create a Slovak draft</h2><p>Keep the original timing, then make the words your own.</p></div><button id="closeDraft" class="icon-button" aria-label="Close draft dialog">×</button></div>
+    <form id="draftForm" class="service-form">
+      <label>Start with<select id="draftKind"><option value="audio">A recording with the guide's voice</option><option value="subtitles">A timed subtitle file (SRT, VTT, JSON)</option><option value="current">A translated copy of the current script</option></select></label>
+      <label id="draftFileLabel">Source file<input id="draftFile" type="file" accept="audio/*,.mp4"></label>
+      <label>Session name<input id="draftName" maxlength="160" placeholder="My next session" required></label>
+      <label>Source language<select id="draftLanguage"><option value="auto">Detect automatically</option><option value="en">English</option><option value="sk">Slovak (no translation)</option><option value="cs">Czech</option><option value="de">German</option><option value="es">Spanish</option><option value="fr">French</option><option value="pl">Polish</option><option value="it">Italian</option><option value="pt">Portuguese</option></select></label>
+      <p class="provider-note" id="draftServiceNote">The recording is sent to ElevenLabs for transcription. Its text is sent to DeepL for Slovak translation. These services may charge your account. The recording is kept for review; add your separate music-only track in the editor.</p>
+      <div id="draftError" class="validation" role="alert" hidden></div><div class="form-actions"><button type="button" id="draftServices" class="button outline">Set up services</button><button id="startDraft" class="button primary" type="submit">Create Slovak draft</button></div>
+    </form>
+    <div class="draft-history"><div class="section-label">DRAFT PROGRESS</div><div id="draftJobs"><p class="empty-exports">Your new drafts will appear here.</p></div></div>
+  </dialog>
+  <dialog id="servicesDialog"><div class="dialog-heading"><div><div class="eyebrow">OPTIONAL CLOUD SERVICES</div><h2>Transcription &amp; translation</h2><p>Add API keys here when you are ready to create drafts.</p></div><button id="closeServices" class="icon-button" aria-label="Close services dialog">×</button></div>
+    <form id="servicesForm" class="service-form" autocomplete="off">
+      <div class="key-field"><label for="elevenlabsKey">ElevenLabs · speech to text</label><span id="elevenlabsState" class="key-state"></span><input id="elevenlabsKey" type="password" autocomplete="off" placeholder="API key · leave blank to keep saved key"><label class="remove-key"><input id="removeElevenlabs" type="checkbox"> Remove saved key</label></div>
+      <div class="key-field"><label for="deeplKey">DeepL · Slovak translation</label><span id="deeplState" class="key-state"></span><input id="deeplKey" type="password" autocomplete="off" placeholder="API authentication key · Free or Pro"><label class="remove-key"><input id="removeDeepl" type="checkbox"> Remove saved key</label></div>
+      <p class="provider-note">Keys are stored privately on the server. They are not included in subtitle backups. Saving a key does not contact either service. Editing existing subtitles and exporting videos work without keys.</p>
+      <div id="servicesError" class="validation" role="alert" hidden></div><div class="form-actions"><button id="saveServices" class="button primary" type="submit">Save keys</button></div>
+    </form>
+  </dialog>
+  <dialog id="adminDialog"><div class="dialog-heading"><div><div class="eyebrow">OWNER SETTINGS</div><h2>People &amp; Mac renderers</h2></div><button id="closeAdmin" class="icon-button" aria-label="Close owner settings">×</button></div>
+    <h3>Editor accounts</h3><div id="usersList"></div>
+    <form id="addEditorForm" class="service-form"><label>Editor username<input id="editorUsername" required minlength="3" maxlength="80" autocomplete="off"></label><label>Initial password<input id="editorPassword" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></label><button class="button outline" type="submit">Create editor account</button></form>
+    <h3>Mac renderers</h3><p class="provider-note">Create a token, then enter it once in Configure-Mac-Renderer.command on your Mac. The worker connects only when you launch it.</p><div id="workersList"></div>
+    <form id="addWorkerForm" class="service-form"><label>Renderer name<input id="workerName" value="My MacBook" required maxlength="100"></label><button class="button outline" type="submit">Create renderer token</button></form>
+    <div id="newWorkerToken" hidden><p>Copy this token now. It is shown only once.</p><textarea id="workerToken" rows="3" readonly aria-label="New renderer token"></textarea><button class="button outline" id="copyWorkerToken">Copy token</button></div><p id="adminError" class="validation" role="alert" hidden></p>
+  </dialog>
+</body>
+</html>

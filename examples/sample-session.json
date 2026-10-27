@@ -1,0 +1,32 @@
+{
+  "name": "Render verification",
+  "cueOffsetMs": 1000,
+  "segments": [
+    {
+      "id": "one",
+      "startMs": 0,
+      "endMs": 1000,
+      "text": "Nadýchni sa. Ľahko a pokojne."
+    },
+    {
+      "id": "two",
+      "startMs": 2000,
+      "endMs": 3000,
+      "text": "Výdych. Uvoľni ramená."
+    },
+    {
+      "id": "three",
+      "startMs": 4000,
+      "endMs": 5000,
+      "text": "Dovoľ si chvíľu pokoja."
+    }
+  ],
+  "style": {
+    "fontSize": 64,
+    "background": "#000000",
+    "color": "#ffffff",
+    "width": 1280,
+    "height": 720,
+    "layout": "teleprompter"
+  }
+}
