@@ -95,14 +95,21 @@ async function studio({deny=false,fallback=false}={}){
   };
   for(const el of w.document.querySelectorAll('audio,video')){
     let paused=true,time=0;
+    const state=el.media={readyState:4,duration:3,seeking:false,seeks:0,plays:0,loads:0,error:null,playError:null,holdSeek:false,deferPlay:false,pending:[]};
     Object.defineProperty(el,'paused',{get:()=>paused});
-    Object.defineProperty(el,'readyState',{get:()=>4});
-    Object.defineProperty(el,'duration',{get:()=>3});
-    Object.defineProperty(el,'currentTime',{get:()=>time,set:value=>{time=value;el.dispatchEvent(new w.Event('seeking'));queueMicrotask(()=>el.dispatchEvent(new w.Event('seeked')));}});
+    Object.defineProperty(el,'readyState',{get:()=>state.readyState});
+    Object.defineProperty(el,'duration',{get:()=>state.duration});
+    Object.defineProperty(el,'seeking',{get:()=>state.seeking});
+    Object.defineProperty(el,'error',{get:()=>state.error});
+    el.finishSeek=()=>{state.seeking=false;el.dispatchEvent(new w.Event('seeked'));};
+    Object.defineProperty(el,'currentTime',{get:()=>time,set:value=>{time=value;state.seeks++;state.seeking=true;
+      el.dispatchEvent(new w.Event('seeking'));if(!state.holdSeek)queueMicrotask(el.finishSeek);}});
     el.advance=seconds=>{time+=seconds;el.dispatchEvent(new w.Event('timeupdate'));};
-    el.play=async()=>{paused=false;el.dispatchEvent(new w.Event('play'));};
+    el.play=()=>{state.plays++;if(state.playError)return Promise.reject(state.playError);
+      paused=false;el.dispatchEvent(new w.Event('play'));
+      return state.deferPlay?new Promise((resolve,reject)=>state.pending.push({resolve,reject})):Promise.resolve();};
     el.pause=()=>{if(!paused){paused=true;el.dispatchEvent(new w.Event('pause'));}};
-    el.load=()=>{};
+    el.load=()=>{state.loads++;state.error=null;};
   }
   let session={id:'session',projectId:'project',guideJobId:'guide',name:'Sign in',guideRevision:5,durationMs:3000,sampleRate:48000,
     revision:1,timelineRevision:1,clips:[],cues:[{startMs:0,endMs:2500,text:'English'}],
@@ -223,3 +230,132 @@ test('video buffering and playback-speed changes pause and save microphone captu
   }finally{await app.close();}
 });
 
+
+async function preview(app,choice='raw'){
+  const {w}=app,$=id=>w.document.getElementById(id);
+  await w.NarrationStudio.open('guide');
+  const session=w.NarrationStudio._test().session;
+  session.master={status:'ready'};
+  session.enhanced={id:'enhanced'};
+  $('narrationListen').value=choice;$('narrationListen').dispatchEvent(new w.Event('change'));
+  await delay();
+  return {session,video:$('guideVideo'),voice:$('narrationVoice'),status:$('narrationPreviewStatus'),
+    play:$('playNarrationPreview'),pause:$('pauseNarrationPreview'),$};
+}
+
+test('preview plays both tracks at selected levels and level/language updates do not seek again',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {video,voice,play,pause,$}=await preview(app);
+    video.currentTime=.5;await delay();
+    const seeks=voice.media.seeks;
+    $('mixMusic').value='25';$('mixMusic').dispatchEvent(new w.Event('input'));
+    $('mixVoice').value='90';$('mixVoice').dispatchEvent(new w.Event('input'));
+    w.document.querySelector('[data-language=en]').click();
+    assert.equal(voice.media.seeks,seeks,'Settings and refreshes must not reset the decoder');
+    play.click();await delay();
+    assert.equal(video.paused,false);assert.equal(voice.paused,false);
+    assert.equal(video.volume,.25);assert.equal(voice.volume,.9);
+    assert.match(voice.getAttribute('src'),/master\?version=1&play=1$/);
+    voice.advance(.2);video.advance(.2);await delay();
+    assert.equal(voice.media.seeks,seeks);
+    pause.click();assert.equal(video.paused,true);assert.equal(voice.paused,true);
+  }finally{await app.close();}
+});
+
+test('slow WAV metadata, pending play and seeking are not restarted on every clock tick',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {video,voice,play,status}=await preview(app);
+    voice.media.readyState=0;voice.media.deferPlay=true;
+    video.currentTime=.5;await delay();const seeks=voice.media.seeks;
+    play.click();
+    assert.equal(voice.media.plays,1);
+    for(let n=0;n<5;n++)video.advance(.1);
+    assert.equal(voice.media.seeks,seeks,'Do not seek before WAV metadata arrives');
+    voice.media.readyState=1;voice.media.holdSeek=true;
+    voice.dispatchEvent(new w.Event('loadedmetadata'));
+    assert.equal(voice.media.seeks,seeks+1);
+    for(let n=0;n<5;n++)video.advance(.1);
+    assert.equal(voice.media.seeks,seeks+1,'Do not replace a pending network seek');
+    assert.equal(voice.media.plays,1,'Keep one outstanding play promise');
+    assert.match(status.textContent,/Načítava/);
+    voice.media.readyState=4;voice.media.holdSeek=false;
+    voice.finishSeek();voice.media.pending.shift().resolve();await delay();
+    assert.equal(voice.paused,false);assert.equal(video.paused,false);
+    assert.equal(voice.currentTime,video.currentTime,'Align once when delayed playback starts');
+    assert.ok(voice.media.seeks<=seeks+2);
+  }finally{await app.close();}
+});
+
+test('blocked secondary audio pauses music, reports inside the dialog and retries directly on click',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {video,voice,play,status,$}=await preview(app);
+    voice.media.playError=new w.DOMException('Autoplay blocked','NotAllowedError');
+    await video.play();await delay();
+    assert.equal(video.paused,true);assert.ok(status.classList.contains('preview-error'));
+    assert.match(status.textContent,/zablokované/);
+    const attempts=voice.media.plays;
+    for(let n=0;n<5;n++)video.advance(.05);
+    assert.equal(voice.media.plays,attempts,'Do not retry blocked playback in the timer');
+    w.document.querySelector('[data-language=en]').click();
+    assert.match(status.textContent,/blocked/);
+    voice.media.playError=null;
+    const original=voice.play;let inClick=false,calledInClick=false;
+    voice.play=()=>{calledInClick=inClick;return original();};
+    inClick=true;play.click();inClick=false;await delay();
+    assert.equal(calledInClick,true);assert.equal(video.paused,false);assert.equal(voice.paused,false);
+    assert.equal(status.classList.contains('preview-error'),false);
+    $('closeNarration').click();await delay();assert.equal(voice.paused,true);
+  }finally{await app.close();}
+});
+
+test('decode/network errors are visible in the studio and retry reloads the source',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {video,voice,play,status}=await preview(app);
+    play.click();await delay();
+    voice.media.error={code:3};voice.dispatchEvent(new w.Event('error'));
+    assert.equal(video.paused,true);assert.match(status.textContent,/dekódovať/);
+    const loads=voice.media.loads;play.click();await delay();
+    assert.equal(voice.media.loads,loads+1);assert.equal(voice.paused,false);
+    voice.media.error={code:2};voice.dispatchEvent(new w.Event('error'));
+    assert.equal(video.paused,true);assert.match(status.textContent,/pripojenie/);
+  }finally{await app.close();}
+});
+
+test('switching sources ignores old play rejection and enhanced offset aligns without repeated seeks',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {video,voice,play,status,$}=await preview(app);
+    voice.media.deferPlay=true;play.click();
+    const old=voice.media.pending.shift();
+    $('narrationListen').value='enhanced';$('narrationListen').dispatchEvent(new w.Event('change'));
+    assert.equal(voice.getAttribute('src'),'/media/enhanced');
+    old.reject(new w.DOMException('Old source failed','NotSupportedError'));await delay();
+    assert.equal(status.classList.contains('preview-error'),false);
+    voice.media.deferPlay=false;voice.media.pending.shift().resolve();await delay();
+    video.currentTime=1;await delay();
+    $('narrationOffset').value='.1';$('narrationOffset').dispatchEvent(new w.Event('input'));await delay();
+    assert.equal(voice.currentTime,.9);
+    const seeks=voice.media.seeks;
+    $('mixVoice').value='80';$('mixVoice').dispatchEvent(new w.Event('input'));await delay();
+    assert.equal(voice.media.seeks,seeks);
+    $('narrationOffset').value='2';$('narrationOffset').dispatchEvent(new w.Event('input'));
+    assert.equal(voice.paused,true);
+    video.currentTime=2.5;await delay();assert.equal(voice.currentTime,.5);assert.equal(voice.paused,false);
+  }finally{await app.close();}
+});
+
+test('missing narration is explained inside the modal and never starts a music-only voice preview',async()=>{
+  const app=await studio(),{w}=app;
+  try{
+    const {session,video,voice,play,status,$}=await preview(app);
+    session.master={status:'missing'};
+    $('narrationListen').dispatchEvent(new w.Event('change'));play.click();await delay();
+    assert.equal(video.paused,true);assert.equal(voice.paused,true);assert.match(status.textContent,/WAV/);
+    $('narrationListen').value='music';$('narrationListen').dispatchEvent(new w.Event('change'));
+    play.click();await delay();assert.equal(video.paused,false);assert.equal(voice.paused,true);
+  }finally{await app.close();}
+});

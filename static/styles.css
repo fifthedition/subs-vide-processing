@@ -313,6 +313,7 @@ dialog{padding:20px}
 .narration-section{padding:18px;border:1px solid var(--line);border-radius:7px;background:#fff;margin:18px 0}
 .narration-section h3{font-size:18px;margin:0 0 12px;line-height:1.4}
 .narration-section p{font-size:14px;color:#334155;line-height:1.7}
+.narration-section .preview-error{color:#a71d25;font-weight:600}
 .narration-section label,.narration-range label,.narration-select{display:grid;gap:8px;font-size:14px;font-weight:550;color:#334155;margin:14px 0}
 .narration-section input[type=number],.narration-section input[type=file],.narration-section select,.narration-range input,.narration-select select{border:1px solid var(--field);border-radius:5px;background:#fff;padding:10px;width:100%;min-width:0;font:inherit;color:#111827}
 .narration-section input[type=file]{font-size:13px}

@@ -1,6 +1,6 @@
 services:
   studio:
-    image: sixthedition/subs-video-processor:${STUDIO_VERSION:-0.6.1}
+    image: sixthedition/subs-video-processor:${STUDIO_VERSION:-0.6.2}
     container_name: breathwork-studio
     init: true
     restart: unless-stopped

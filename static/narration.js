@@ -5,6 +5,7 @@ window.NarrationStudio = (() => {
   let cfg,mic,spool,session=null,meta=null,recording=false,preparing=false,stopping=null,upload=null;
   let testMode=false,testTimer,testURL=null,testChunks=[],mixDirty=false,hasPending=false,clockTimer,pollTimer;
   let statusKey='Ready to record.',statusValues={},previewError=false,activeExport=false,guideJobs=[],guideSignature='';
+  let voicePlay=null,nextVoiceCorrection=0,previewKey='Choose audio and press Play preview.';
   const video=()=>$('guideVideo'),voice=()=>$('narrationVoice');
   function status(key,values={}){statusKey=key;statusValues=values;$('narrationStatus').textContent=t(key,values);}
   function microphoneError(error){
@@ -30,7 +31,8 @@ window.NarrationStudio = (() => {
     for(const id of ['recordRange','resumeNarration'])$(id).disabled=!session||busy||hasPending;
     $('pauseNarration').disabled=!recording;
     for(const id of ['recordStart','recordEnd','narrationCue','narrationGuide','enhancedFile','enhancedBasisVersion',
-      'enhancedVersionConfirm','narrationOffset','mixMusic','mixVoice','narrationAlignment','saveNarrationMix','narrationListen'])$(id).disabled=busy||!session;
+      'enhancedVersionConfirm','narrationOffset','mixMusic','mixVoice','narrationAlignment','saveNarrationMix','narrationListen',
+      'playNarrationPreview','pauseNarrationPreview'])$(id).disabled=busy||!session;
     $('undoNarration').disabled=busy||hasPending||!session?.canUndo;
     $('prepareNarrationMaster').disabled=busy||hasPending||!session?.clips.length||session?.master.status==='building';
     $('narrationAlignment').disabled=busy||!session?.enhancedIsCurrent;
@@ -249,20 +251,84 @@ window.NarrationStudio = (() => {
     let source=choice==='raw'&&session.master.status==='ready'?'/api/narration/'+session.id+'/master?version='+session.timelineRevision+'&play=1':
       choice==='enhanced'&&session.enhanced?'/media/'+session.enhanced.id:'';
     if(recording)source='';
-    if(voice().getAttribute('src')!==source){
-      voice().pause();if(source)voice().src=source;else voice().removeAttribute('src');previewError=false;
+    if((voice().getAttribute('src')||'')!==source){
+      voicePlay=null;nextVoiceCorrection=0;previewError=false;
+      voice().pause();if(source)voice().src=source;else voice().removeAttribute('src');
+      voice().load();
+      previewStatus('Choose audio and press Play preview.');
     }
-    syncVoice(true);
+    if(!source&&choice!=='music')previewStatus(choice==='raw'?'Prepare the WAV master to preview saved narration.':
+      'Upload enhanced narration to preview it.');
+    // Updating levels or polling the session must not restart an audio seek.
+    syncVoice();
   }
-  function syncVoice(force=false){
+  function previewStatus(key,error=false){
+    previewKey=key;const message=t(key);
+    if($('narrationPreviewStatus').textContent!==message)$('narrationPreviewStatus').textContent=message;
+    $('narrationPreviewStatus').classList.toggle('preview-error',error);
+  }
+  function previewFailed(error){
+    if(error?.name==='AbortError')return; // Pause/seek/source changes can interrupt play().
+    previewError=true;video().pause();voice().pause();
+    previewStatus(error?.name==='NotAllowedError'?'Voice playback was blocked. Click Play preview to allow it.':
+      error?.name==='NotSupportedError'||voice().error?.code===3||voice().error?.code===4?
+      'The browser could not decode the narration. Download the WAV to check it, or try another browser.':
+      'The narration could not load. Check your connection and click Play preview to retry.',true);
+  }
+  function playVoice(){
+    if(voicePlay||!voice().paused||previewError)return;
+    const operation={};voicePlay=operation;
+    // Invoke play synchronously: the preview button supplies the user gesture
+    // required by browsers that block a second media element's automatic audio.
+    let promise;
+    try{promise=voice().play();}catch(error){voicePlay=null;previewFailed(error);return;}
+    Promise.resolve(promise).then(()=>{
+      if(voicePlay!==operation)return;
+      voicePlay=null;
+      if(video().paused||recording||!$('narrationDialog').open)voice().pause();
+      else{previewStatus('Playing narration and music.');syncVoice(true);}
+    },error=>{
+      if(voicePlay!==operation)return;
+      voicePlay=null;previewFailed(error);
+    });
+  }
+  function syncVoice(force=false,start=false){
     if(!session||!voice().getAttribute('src')||recording){voice().pause();return;}
+    if(previewError)return;
     const offset=$('narrationListen').value==='enhanced'?Number($('narrationOffset').value)||0:0;
     const at=video().currentTime-offset;
-    if(at<0||(Number.isFinite(voice().duration)&&at>=voice().duration)){voice().pause();return;}
-    if(force||Math.abs(voice().currentTime-at)>.1){try{voice().currentTime=Math.max(0,at);}catch{}}
+    if(at<0||(voice().duration>0&&Number.isFinite(voice().duration)&&at>=voice().duration)){
+      voice().pause();previewStatus('No narration at this position.');return;
+    }
+    const now=performance.now(),drift=Math.abs(voice().currentTime-at);
+    // Wait for an in-flight seek/play to settle. Re-seeking a large WAV every
+    // 200 ms can keep a network-backed decoder buffering indefinitely.
+    if(voice().readyState>=1&&!voice().seeking&&!video().seeking&&drift>(force?.04:.35)&&
+      (force||(!voicePlay&&voice().readyState>=3&&now>=nextVoiceCorrection))){
+      try{voice().currentTime=Math.max(0,at);nextVoiceCorrection=now+2000;}catch{}
+    }
     voice().playbackRate=video().playbackRate;
-    if(video().paused)voice().pause();
-    else if(voice().paused)voice().play().catch(()=>{if(!previewError){previewError=true;cfg.toast(t('Voice preview could not start. Press Play again.'),true);}});
+    if(video().paused&&!start)voice().pause();
+    else{
+      if(voice().readyState<3||voice().seeking)previewStatus('Loading narration…');
+      else if(!voice().paused&&!voicePlay)previewStatus('Playing narration and music.');
+      playVoice();
+    }
+  }
+  function playPreview(){
+    if(!session||recording||preparing||stopping||testMode)return;
+    previewError=false;
+    if(voice().error){voicePlay=null;voice().load();}
+    playback();
+    if($('narrationListen').value!=='music'&&!voice().getAttribute('src'))return;
+    cfg.pauseEditorAudio();
+    if(video().ended)video().currentTime=0;
+    syncVoice(true,true);
+    // Both play calls occur in this click handler, without an await between them.
+    video().play().catch(()=>{
+      voice().pause();previewStatus('The guide video could not play. Check your connection and reopen it.',true);
+    });
+    if($('narrationListen').value==='music')previewStatus('Playing music only.');
   }
   function tick(){
     if(!session||!$('narrationDialog').open)return;
@@ -343,6 +409,7 @@ window.NarrationStudio = (() => {
   async function open(guideId){
     if(recording||preparing||stopping)throw new Error('Pause and save the current recording first.');
     preparing=true;buttons();cfg.pauseEditorAudio();
+    voicePlay=null;previewError=false;video().pause();voice().pause();
     try{
       session=await request('/api/narration/open',{method:'POST',body:{guideJobId:guideId}});
       mixDirty=false;hasPending=false;meta=null;activeExport=false;guideJobs=[];
@@ -352,6 +419,7 @@ window.NarrationStudio = (() => {
       $('enhancedVersionConfirm').checked=false;$('narrationListen').value='music';
       video().src='/api/jobs/'+guideId+'/play';video().currentTime=Math.min(session.lastPositionMs||0,session.durationMs)/1000;
       $('narrationDialog').showModal();status('Ready to record.');renderSession(true);
+      previewStatus('Choose audio and press Play preview.');
       await updateRecovery();await refreshExportState();
       clearInterval(clockTimer);clockTimer=setInterval(tick,200);
       clearInterval(pollTimer);pollTimer=setInterval(()=>safe(()=>refreshSession()),3000);
@@ -360,7 +428,7 @@ window.NarrationStudio = (() => {
   async function close(){
     if(recording)await pauseTake();
     if(preparing||stopping)return;
-    video().pause();voice().pause();await mic.disconnect();describeMic();
+    voicePlay=null;video().pause();voice().pause();await mic.disconnect();describeMic();
     clearInterval(clockTimer);clearInterval(pollTimer);$('narrationDialog').close();
     video().removeAttribute('src');video().load();voice().removeAttribute('src');voice().load();
     await refreshRecoveryBadge().catch(()=>{});
@@ -406,12 +474,13 @@ window.NarrationStudio = (() => {
     $('enhancedFile').onchange=()=>safe(()=>enhance($('enhancedFile').files[0]));
     $('enhancedBasisVersion').oninput=()=>{mixDirty=true;};
     for(const id of ['mixMusic','mixVoice','narrationOffset','narrationAlignment']){
-      $(id).oninput=()=>{mixDirty=true;if(id==='narrationOffset')$('narrationAlignment').checked=false;$('mixMusicValue').value=$('mixMusic').value+'%';$('mixVoiceValue').value=$('mixVoice').value+'%';playback();buttons();};
+      $(id).oninput=()=>{mixDirty=true;if(id==='narrationOffset')$('narrationAlignment').checked=false;$('mixMusicValue').value=$('mixMusic').value+'%';$('mixVoiceValue').value=$('mixVoice').value+'%';playback();if(id==='narrationOffset')syncVoice(true);buttons();};
     }
     $('narrationListen').onchange=()=>{
-      if($('narrationListen').value==='raw'&&session.master.status!=='ready')cfg.toast(t('Prepare the WAV master to preview saved narration.'),true);
       playback();
     };
+    $('playNarrationPreview').onclick=playPreview;
+    $('pauseNarrationPreview').onclick=()=>{video().pause();voice().pause();if(!previewError)previewStatus('Preview paused.');};
     $('saveNarrationMix').onclick=()=>safe(async()=>{await saveMix();status('Mix settings saved.');});
     $('queueNarrationFinal').onclick=()=>safe(async()=>{await saveMix();await request('/api/narration/'+session.id+'/render',{method:'POST',body:{revision:session.revision}});activeExport=true;buttons();status('Final mix queued. Start the Mac renderer when ready.');await cfg.jobsChanged();});
     $('narrationRecovery').onclick=event=>safe(async()=>{
@@ -437,10 +506,13 @@ window.NarrationStudio = (() => {
     video().addEventListener('ended',()=>{if(recording)safe(()=>pauseTake('Selected range recorded and saved.'));});
     video().addEventListener('error',()=>{if(recording)safe(()=>pauseTake());cfg.toast(t('The guide video could not play. Check your connection and reopen it.'),true);});
     voice().addEventListener('loadedmetadata',()=>syncVoice(true));
+    for(const event of ['canplay','seeked'])voice().addEventListener(event,()=>syncVoice());
+    voice().addEventListener('waiting',()=>{if(!recording&&!video().paused&&!previewError)previewStatus('Loading narration…');});
+    voice().addEventListener('error',()=>{if(session&&voice().getAttribute('src')&&!recording)previewFailed(voice().error);});
     document.addEventListener('visibilitychange',()=>{if(document.hidden&&recording)safe(()=>pauseTake('Recording paused because the video is no longer visible.'));});
     window.addEventListener('pagehide',()=>safe(async()=>{if(recording)await pauseTake();await mic.disconnect();}));
     window.addEventListener('beforeunload',event=>{if(recording||stopping||hasPending){event.preventDefault();event.returnValue='';}});
-    document.addEventListener('languagechange',()=>{status(statusKey,statusValues);describeMic();renderSession();buttons();});
+    document.addEventListener('languagechange',()=>{status(statusKey,statusValues);describeMic();renderSession();previewStatus(previewKey,previewError);buttons();});
     buttons();
   }
   return {init,open,watch,authReady:()=>safe(refreshRecoveryBadge),isRecording:()=>recording||preparing||!!stopping,
