@@ -1,6 +1,6 @@
 FROM python:3.13-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 STUDIO_MODE=server STUDIO_BIND=0.0.0.0
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 studio && useradd --uid 1000 --gid studio --create-home studio
 WORKDIR /app

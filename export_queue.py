@@ -1,13 +1,16 @@
 """Durable immutable exports. Every mutation checks the current claim attempt."""
 import copy
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 import secrets
 import shutil
 import subprocess
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from studio import ConflictError, ValidationError, make_frame, normalize_project, now, uid
 
@@ -25,6 +28,27 @@ def file_hash(path):
 
 def public_job(job):
     return {key: value for key, value in job.items() if key not in ("snapshot", "music", "attempt", "workerId", "leaseUntil", "upload", "claimId")}
+
+
+def export_filename(job, time_zone="UTC"):
+    """Name a download by saved revision and export time in the viewer's zone."""
+    try:
+        zone = ZoneInfo(time_zone) if isinstance(time_zone, str) and len(time_zone) <= 100 else timezone.utc
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = timezone.utc
+    timestamp = None
+    for value in (job.get("completedAt"), job.get("createdAt")):
+        try:
+            timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            timestamp = timestamp.replace(tzinfo=timezone.utc) if timestamp.tzinfo is None else timestamp
+            break
+        except ValueError:
+            continue
+    stamp = timestamp.astimezone(zone).strftime("%Y-%m-%d_%H-%M-%S%z") if timestamp else "undated"
+    name = re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]+', "-", str(job.get("projectName") or "Session")).strip(" .")
+    name = name.encode("utf-8")[:120].decode("utf-8", errors="ignore").rstrip(" .") or "Session"
+    identifier = re.sub(r"[^a-zA-Z0-9]", "", str(job["id"]))[:8]
+    return f"{name}_r{job['revision']}_{stamp}_{identifier}.mp4"
 
 
 class ExportQueue:
@@ -190,7 +214,6 @@ class ExportQueue:
 
     def start_upload(self, job_id, worker_id, payload):
         size, sha = int(payload.get("bytes", 0)), str(payload.get("sha256", ""))
-        import re
         if not 0 < size <= MAX_EXPORT_BYTES or not re.fullmatch("[0-9a-f]{64}", sha):
             raise ValidationError("Invalid export size or SHA-256 digest.")
         with self.store.connection() as db:

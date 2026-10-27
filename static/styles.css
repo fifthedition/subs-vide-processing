@@ -30,3 +30,5 @@
 #newWorkerToken {margin-top:20px;padding:16px;background:#fff8dd;border-radius:8px;}
 #workerToken {font-family:monospace;resize:vertical;}
 .sidebar-footer .text-button {display:block;text-align:left;margin-top:8px;}
+.job-meta {display:grid;gap:2px;margin:4px 0;}
+.job-meta small {font-size:10px;color:#657761;}

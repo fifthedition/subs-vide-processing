@@ -19,8 +19,10 @@ import hmac
 from studio import ROOT, Store, ValidationError, ConflictError, display_language, import_subtitles, make_frame, normalize_project, now, probe_audio, render_video, subtitle_text, uid
 from services import DraftService
 from security import Security, AccessError
-from export_queue import ExportQueue, public_job, PROTOCOL, RENDERER_VERSION, CHUNK_BYTES
+from export_queue import ExportQueue, export_filename, PROTOCOL, RENDERER_VERSION, CHUNK_BYTES
 from uploads import Uploads
+
+APP_VERSION = "0.4.1"
 
 
 class Application:
@@ -80,7 +82,7 @@ class Application:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "BreathworkStudio/0.4"
+    server_version = "BreathworkStudio/" + APP_VERSION
 
     def __init__(self, *args, application=None, **kwargs):
         self.application = application
@@ -223,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         route = url.path
         if route == "/api/health":
-            self.send_json({"ready": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")), "version": RENDERER_VERSION, "mode": "server" if self.application.remote else "local", "protocol": PROTOCOL})
+            self.send_json({"ready": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")), "version": APP_VERSION, "rendererVersion": RENDERER_VERSION, "mode": "server" if self.application.remote else "local", "protocol": PROTOCOL})
         elif route == "/api/auth/state":
             self.send_json({"remote": self.application.remote, "needsSetup": bool(self.application.security and self.application.security.needs_setup())})
         elif route == "/api/auth/me":
@@ -292,7 +294,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise KeyError("Export not found.")
             if job["status"] != "complete":
                 raise ValidationError("This export is not finished yet.")
-            self.send_file(self.store.directory / "exports" / (job["id"] + ".mp4"), job["projectName"] + ".mp4")
+            time_zone = parse_qs(url.query).get("timezone", ["UTC"])[0]
+            self.send_file(self.store.directory / "exports" / (job["id"] + ".mp4"), export_filename(job, time_zone))
         elif match := re.fullmatch(r"/media/([a-z0-9]+)(/waveform\.png)?", route):
             media = self.store.media(match[1])
             target = media["storedName"] if not match[2] else media["id"] + "-waveform.png"

@@ -5,7 +5,7 @@ The Mac initiates HTTPS connections to the NAS. There is no inbound Mac server, 
 ## Pair once
 
 1. Install Python 3.11+ and FFmpeg (`brew install ffmpeg` if using Homebrew).
-2. Keep a checkout/download of this repository on the Mac, matching the NAS release version.
+2. Keep a checkout/download of this repository on the Mac, matching the NAS renderer compatibility version. App 0.4.1 uses renderer version 0.4.0, so an existing 0.4.0 Mac worker stays compatible.
 3. Sign in to the NAS app as owner. Open **People & Mac renderers**, enter a name, and create a renderer token. Copy it while shown; the app stores only its hash.
 4. Double-click **Configure-Mac-Renderer.command** in Finder. It prepares the Python environment, asks for the app HTTPS address and prompts for the token without showing typed characters. It checks the connection and stores the token in macOS Keychain. The token is sent over stdin to the Keychain tool, not placed in process arguments or a shell history command.
 
@@ -31,4 +31,4 @@ Transfers use HTTPS, 4 MB upload chunks, resumed audio downloads, and integrity 
 
 A lock prevents two worker instances sharing this Mac cache. The owner can revoke a token in the app at any time. A replacement token requires pairing again. Worker credentials are limited to claiming queued render jobs, their assigned music and render status/results; they cannot edit sessions or manage people/API keys.
 
-For a version update, replace/update the checkout, then run the launcher again. It checks the installed Pillow version. No re-pairing is necessary if the URL and token remain valid.
+When the renderer compatibility version changes, replace/update the checkout, then run the launcher again. Interface-only app releases can keep the same renderer version. It checks the installed Pillow version. No re-pairing is necessary if the URL and token remain valid.

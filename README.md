@@ -26,6 +26,8 @@ A clean installation starts empty. Import `examples/sample-session.json`, add `e
 
 Private subtitle archives are deliberately excluded from this repository and the public image. To migrate the existing app with all preserved English/Slovak documents and corrections, follow the NAS guide. Existing archives can also be mounted privately as `data/subtitles.json`.
 
+Completed exports show their full date, time and timezone. Downloads include the saved revision, export timestamp with UTC offset, and a short export ID in the filename. Dates use the browser’s timezone, including for older migrated exports.
+
 ## Editing and drafts
 
 The editor supports timed cue editing, split/merge, undo, automatic saving with revision conflict detection, SRT/VTT/JSON imports, subtitle downloads, project backups, reference text/audio, music upload, waveform seeking, prompt offsets, theme/font/resolution selection and fullscreen presentation. New JSON imports create a separate session.
@@ -42,4 +44,4 @@ node --check static/login.js
 
 CI runs the suite, builds the Linux image and checks its startup/authentication defaults. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
 
-Version: **0.4.0**. Server and worker versions must match. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`.
+App version: **0.4.1**. Renderer compatibility version: **0.4.0**. This interface update works with the existing 0.4.0 Mac worker. Renderer compatibility versions must match when rendering behavior changes. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`.

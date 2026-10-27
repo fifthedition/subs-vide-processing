@@ -13,7 +13,9 @@ The browser talks to the NAS HTTPS hostname through Nginx Proxy Manager. The NAS
 - Completed uploads are checked for declared size, SHA-256, audio/video streams and duration before the final MP4 is made downloadable. Completion is idempotent.
 - Normal shutdown/Control-C releases the job. A crash relies on lease expiry. A worker failure records an error and moves on to later queued jobs. There is no automatic paid provider retry.
 
-The current renderer version is 0.4.0 and protocol is 1. Old queue entries from local-only versions cannot be rendered remotely because their in-memory snapshots were never persisted; their old downloadable completed exports remain available.
+The app version is 0.4.1; renderer compatibility remains 0.4.0 and protocol is 1. App and renderer versions are separate so interface-only updates work with paired existing workers. Old queue entries from local-only versions cannot be rendered remotely because their in-memory snapshots were never persisted; their old downloadable completed exports remain available.
+
+Export history displays the full completion date/time in the browser’s timezone (using creation time for legacy exports without a completion timestamp). Pending/failed entries show their request date. Download names include the saved revision, that timestamp with its UTC offset and a short job ID. Direct download URLs without a timezone use UTC. Stored MP4 paths and project revisions remain unchanged.
 
 ## Access
 
