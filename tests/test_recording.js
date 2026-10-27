@@ -57,9 +57,10 @@ test('recording spool survives reload, removes acknowledged chunks and retains d
   }finally{first.database?.close();second.database?.close();dom.window.close();}
 });
 
-async function studio({deny=false,fallback=false}={}){
+async function studio({deny=false,fallback=false,tools=false}={}){
   const dom=new JSDOM(read('index.html'),{url:'https://studio.example',runScripts:'outside-only'}),w=dom.window;
   w.indexedDB=new IDBFactory();w.isSecureContext=true;
+  Object.defineProperty(w.document,'hidden',{get:()=>false,configurable:true});
   w.setInterval=()=>0;w.clearInterval=()=>{};w.confirm=()=>true;
   w.URL.createObjectURL=()=> 'blob:test-recording';w.URL.revokeObjectURL=()=>{};
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
@@ -120,6 +121,7 @@ async function studio({deny=false,fallback=false}={}){
     let match;
     if(path==='/api/narration/open'||path==='/api/narration/session')return clone(session);
     if(path.startsWith('/api/jobs'))return [];
+    if(path.endsWith('/peaks')||path.endsWith('/guide-peaks'))return {status:'ready',durationMs:3000,peaks:[0,.5,1,.5,0]};
     if(path.startsWith('/api/recordings?')||path==='/api/recordings')return [...pending.values()].map(clone);
     if(path==='/api/narration/session/take'){
       const id='take'+(++takeCount);offset=0;
@@ -141,13 +143,13 @@ async function studio({deny=false,fallback=false}={}){
     if(path==='/api/narration/session/mix'){session={...session,...options.body,revision:session.revision+1};return clone(session);}
     throw new Error('Unexpected request '+path);
   };
-  w.eval(read('i18n.js')+'\n'+read('recorder.js')+'\n'+read('narration.js'));
+  w.eval(read('i18n.js')+'\n'+read('recorder.js')+'\n'+(tools?read('icons.js')+'\n'+read('timeline.js')+'\n'+read('studio-tools.js')+'\n':'')+read('narration.js'));
   const clock=(ms,precise=false)=>{const s=Math.floor(ms/1000),m=Math.floor(s/60);return precise?'00:'+String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0')+'.'+String(ms%1000).padStart(3,'0'):String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0');};
   const parseClock=text=>{const [h,m,s]=text.split(':').map(Number);return Math.round(((h*60+m)*60+s)*1000);};
   w.NarrationStudio.init({api,uploadFile:async()=>({id:'enhanced'}),toast:message=>errors.push(message),clock,parseClock,
     auth:()=>({id:'editor'}),jobsChanged:async()=>{},pauseEditorAudio(){}});
-  return {dom,w,nodes,contexts,constraints,requests,errors,pending,get stops(){return stops;},set offline(value){offline=value;},
-    async close(){const state=w.NarrationStudio._test();if(state.mic.active)await state.mic.stop();await state.mic.disconnect();state.spool.database?.close();dom.window.close();}};
+  return {dom,w,nodes,contexts,constraints,requests,errors,pending,get server(){return session;},get stops(){return stops;},set offline(value){offline=value;},
+    async close(){w.StudioTools?.close();const state=w.NarrationStudio._test();if(state.mic.active)await state.mic.stop();await state.mic.disconnect();state.spool.database?.close();for(let n=0;n<5;n++)await delay();dom.window.close();}};
 }
 
 test('independent mic check handles permission denial and never starts narration',async()=>{
@@ -357,5 +359,90 @@ test('missing narration is explained inside the modal and never starts a music-o
     assert.equal(video.paused,true);assert.equal(voice.paused,true);assert.match(status.textContent,/WAV/);
     $('narrationListen').value='music';$('narrationListen').dispatchEvent(new w.Event('change'));
     play.click();await delay();assert.equal(video.paused,false);assert.equal(voice.paused,true);
+  }finally{await app.close();}
+});
+
+test('saved range auditions stream its source offset immediately without a master WAV',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');const session=w.NarrationStudio._test().session;
+    session.clips=[{mediaId:'earlier',startFrame:0,endFrame:24000,sourceFrame:0},{mediaId:'latest',startFrame:48000,endFrame:96000,sourceFrame:24000},{mediaId:'later',startFrame:120000,endFrame:144000,sourceFrame:0}];session.lastTakeId='latest';
+    w.StudioTools.render();$('playLastTake').click();await delay();
+    assert.equal($('narrationListen').value,'take');assert.equal($('narrationVoice').getAttribute('src'),'/media/latest');
+    assert.equal($('guideVideo').currentTime,1);assert.equal($('narrationVoice').currentTime,.5);
+    assert.equal(session.master.status,'missing');assert.equal($('narrationVoice').paused,false);
+    $('guideVideo').advance(1.05);await delay();assert.equal($('guideVideo').paused,true);assert.equal($('narrationVoice').paused,true);
+    assert.equal(app.requests.some(r=>r.path.endsWith('/master')),false);
+  }finally{await app.close();}
+});
+
+test('music and voice mute/solo are temporary and do not change saved final mix levels',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');
+    $('soloPreviewVoice').click();assert.equal($('guideVideo').muted,true);assert.equal($('narrationVoice').muted,false);
+    $('mutePreviewVoice').click();assert.equal($('narrationVoice').muted,true);
+    await w.NarrationStudio._test().saveMix();
+    const saved=app.requests.findLast(r=>r.path.endsWith('/mix')).options.body;
+    assert.equal(saved.musicVolume,.25);assert.equal(saved.voiceVolume,1);
+    assert.equal(Object.hasOwn(saved,'muted'),false);
+    assert.ok($('playNarrationPreview').querySelector('svg'));assert.ok($('pauseNarrationPreview').querySelector('svg'));
+  }finally{await app.close();}
+});
+
+test('master progress refreshes with unsaved mix controls but concurrent edits preserve conflict revision',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');const state=w.NarrationStudio._test();
+    $('mixMusic').value='15';$('mixMusic').dispatchEvent(new w.Event('input'));
+    app.server.master={status:'ready'};await state.refreshSession();
+    assert.equal(state.session.master.status,'ready');assert.equal($('mixMusic').value,'15');
+    const revision=state.session.revision;app.server.revision++;await state.refreshSession();
+    assert.equal(state.session.revision,revision);assert.equal(state.session.remoteChanged,true);
+    assert.equal($('mixMusic').value,'15');assert.equal($('queueNarrationFinal').disabled,true);
+  }finally{await app.close();}
+});
+
+test('count-in can be cancelled before capture and its empty pending take is discarded',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');$('recordCountIn').checked=true;
+    const state=w.NarrationStudio._test(),starting=state.beginRecord(),rejected=assert.rejects(starting,/cancelled/);
+    await until(()=>!$('cancelCountIn').hidden);
+    assert.equal(state.mic.active,false);assert.equal($('guideVideo').paused,true);
+    $('cancelCountIn').click();await rejected;assert.equal(app.pending.size,0);assert.equal(w.NarrationStudio.isRecording(),false);
+    assert.equal((await state.spool.all()).length,0);
+  }finally{await app.close();}
+});
+
+test('lead-in plays without capturing and range recording begins at the requested boundary',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');$('recordStart').value='00:00:01.000';$('recordEnd').value='00:00:02.000';$('recordLeadIn').value='1';
+    const state=w.NarrationStudio._test(),starting=state.beginRecord();
+    await until(()=>$('guideVideo').currentTime===0&&!$('guideVideo').paused);
+    assert.equal(state.mic.active,false);
+    $('guideVideo').advance(1.05);await new Promise(resolve=>setTimeout(resolve,30));await starting;
+    assert.equal(state.mic.active,true);assert.equal($('guideVideo').currentTime,1);
+    app.nodes[0].emit(.25);$('guideVideo').advance(.25);await delay();await state.pauseTake();
+    assert.equal(state.session.clips[0].startFrame,48000);assert.equal(state.session.clips[0].endFrame,60000);
+  }finally{await app.close();}
+});
+
+test('timeline selects ranges, supports keyboard seeking and loops a selected interval',async()=>{
+  const app=await studio({tools:true}),{w}=app,$=id=>w.document.getElementById(id);
+  try{
+    await w.NarrationStudio.open('guide');$('studioTimelineDetails').open=true;w.StudioTools.render();await delay();
+    let ruler=$('recordingTimeline').querySelector('.timeline-ruler');ruler.getBoundingClientRect=()=>({left:0,width:1000});
+    ruler.dispatchEvent(new w.MouseEvent('pointerdown',{clientX:100,bubbles:true}));
+    ruler.dispatchEvent(new w.MouseEvent('pointermove',{clientX:500,bubbles:true}));
+    ruler.dispatchEvent(new w.MouseEvent('pointerup',{clientX:500,bubbles:true}));
+    assert.equal($('recordStart').value,'00:00:00.300');assert.equal($('recordEnd').value,'00:00:01.500');
+    $('narrationOffset').value='.1';$('narrationOffset').dispatchEvent(new w.Event('input'));assert.equal(w.StudioTools.timeline.data.voiceOffsetMs,100);assert.equal(w.NarrationStudio._test().session.voiceOffsetMs,0);
+    assert.equal(app.nodes.length,0);
+    ruler=$('recordingTimeline').querySelector('.timeline-ruler');ruler.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',shiftKey:true,bubbles:true}));assert.equal($('guideVideo').currentTime,.1);
+    $('loopNarrationRange').checked=true;$('playNarrationRange').click();await delay();
+    $('guideVideo').advance(1.3);await delay();assert.equal($('guideVideo').currentTime,.3);assert.equal($('guideVideo').paused,false);
+    $('loopNarrationRange').checked=false;$('guideVideo').advance(1.3);await delay();assert.equal($('guideVideo').paused,true);
   }finally{await app.close();}
 });

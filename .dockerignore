@@ -11,5 +11,6 @@
 !narration.py
 !mixing.py
 !lifecycle.py
+!workspace.py
 !static/
 !static/**

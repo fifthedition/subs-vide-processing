@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import copy
 import html
+import hashlib
 import json
 import math
 import os
@@ -36,6 +37,16 @@ def now():
 
 def uid():
     return uuid.uuid4().hex
+
+
+def script_signature(project):
+    data = {"segments": project.get("segments", []), "cueOffsetMs": project.get("cueOffsetMs", 0)}
+    return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def render_signature(project):
+    data = {key: project.get(key) for key in ("segments", "cueOffsetMs", "style", "musicId")}
+    return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def time_ms(value):
@@ -112,6 +123,20 @@ def normalize_project(project):
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(style[key])):
             raise ValidationError("Use six-digit hex colors.")
     result["style"] = style
+    result["workflowMode"] = project.get("workflowMode", "live")
+    if result["workflowMode"] not in ("live", "narrated"):
+        raise ValidationError("Choose live guidance or recorded narration.")
+    for key in ("favorite", "archived"):
+        result[key] = project.get(key, False)
+        if not isinstance(result[key], bool):
+            raise ValidationError("Choose a valid session setting.")
+    reviewed = project.get("reviewed", [])
+    if not isinstance(reviewed, list) or len(reviewed) > 10000 or any(not isinstance(value, str) for value in reviewed):
+        raise ValidationError("Choose valid subtitles to review.")
+    cue_ids = {c["id"] for c in result["segments"]}
+    result["reviewed"] = list(dict.fromkeys(value for value in reviewed if value in cue_ids))
+    result["renderSignature"] = render_signature(result)
+    result["scriptReady"] = bool(result["segments"] and len(result["reviewed"]) == len(result["segments"]) and project.get("readySignature") and project["readySignature"] == script_signature(result))
     return result
 
 
@@ -172,6 +197,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS media(id TEXT PRIMARY KEY,payload TEXT);
                 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,payload TEXT);
                 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
+                CREATE TABLE IF NOT EXISTS project_versions(project_id TEXT,revision INTEGER,created TEXT,actor TEXT,label TEXT,payload TEXT,PRIMARY KEY(project_id,revision));
             """)
             for row in db.execute("SELECT id,payload FROM jobs").fetchall():
                 job = json.loads(row["payload"])
@@ -215,7 +241,10 @@ class Store:
         with self.connection() as db:
             projects = [json.loads(r[0]) for r in db.execute("SELECT payload FROM projects ORDER BY name")]
         return [{"id": p["id"], "name": p["name"], "revision": p["revision"], "count": len(p["segments"]),
-                 "endMs": max((s["endMs"] for s in p["segments"]), default=0), "musicId": p.get("musicId"), "updatedAt": p["updatedAt"]} for p in projects]
+                 "endMs": max((s["endMs"] for s in p["segments"]), default=0), "musicId": p.get("musicId"), "updatedAt": p["updatedAt"],
+                 "favorite": p.get("favorite", False), "archived": p.get("archived", False),
+                 "reviewedCount": len(p.get("reviewed", [])), "scriptReady": bool(p["segments"] and len(p.get("reviewed", [])) == len(p["segments"]) and p.get("readySignature") and p["readySignature"] == script_signature(p)),
+                 "workflowMode": p.get("workflowMode", "live")} for p in projects]
 
     def create(self, name, segments, source_id=None, archive_id=None, reference=None):
         project = normalize_project({"id": uid(), "name": name, "language": "sk", "segments": segments,
@@ -229,6 +258,7 @@ class Store:
                 self.media(project["reference"]["mediaId"])
         with self.connection() as db:
             db.execute("INSERT INTO projects VALUES(?,?,?,?,?)", (project["id"], project["name"], 1, json.dumps(project, ensure_ascii=False), project["updatedAt"]))
+            self._version(db, project, "Local workspace", "Created")
         return project
 
     def create_from_archive(self, subtitle_id):
@@ -239,7 +269,12 @@ class Store:
         name = re.sub(r"\s*-\s*(?:Script\s+)?(?:SK|EN)\b.*$", "", meta["name"], flags=re.I)
         return self.create(name, [{**s, "id": uid()} for s in document["segments"]], source, meta["id"])
 
-    def save(self, project_id, payload):
+    @staticmethod
+    def _version(db, project, actor, label):
+        db.execute("INSERT OR IGNORE INTO project_versions VALUES(?,?,?,?,?,?)", (project["id"], project["revision"], project["updatedAt"],
+            str(actor)[:80], label, json.dumps(project, ensure_ascii=False)))
+
+    def save(self, project_id, payload, actor="Local workspace", label="Saved", ready=False):
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT payload,revision FROM projects WHERE id=?", (project_id,)).fetchone()
@@ -248,16 +283,57 @@ class Store:
             if payload.get("revision") != row["revision"]:
                 raise ConflictError("This session changed in another window. Download your draft JSON before reloading.")
             previous = json.loads(row["payload"])
-            project = normalize_project({**previous, **{k: payload[k] for k in ("name", "segments", "sourceId", "cueOffsetMs", "style", "musicId") if k in payload}})
+            project = normalize_project({**previous, **{k: payload[k] for k in ("name", "segments", "sourceId", "cueOffsetMs", "style", "musicId", "reviewed", "workflowMode", "favorite", "archived") if k in payload}})
+            old_cues = {c["id"]: c for c in previous["segments"]}
+            project["reviewed"] = [c["id"] for c in project["segments"] if c["id"] in project["reviewed"] and c == old_cues.get(c["id"])]
             if project.get("musicId"):
                 if self.media(project["musicId"]).get("purpose") not in (None, "music"):
                     raise ValidationError("Choose your separate music-only track. Source recordings are for transcription and review.")
             if project.get("sourceId") is not None and str(project["sourceId"]) not in self.catalog_by_id:
                 raise ValidationError("Unknown reference subtitle.")
             project.update(id=project_id, revision=row["revision"] + 1, updatedAt=now())
+            if ready:
+                if not project["segments"] or len(project["reviewed"]) != len(project["segments"]) or any(not c["text"].strip() for c in project["segments"]):
+                    raise ValidationError("Review every subtitle before marking the script ready.")
+                project.update(readySignature=script_signature(project), readyRevision=project["revision"], readyBy=str(actor)[:80])
+            project = normalize_project(project)
+            self._version(db, previous, actor, "Earlier version")
+            self._version(db, project, actor, label)
+            db.execute("DELETE FROM project_versions WHERE project_id=? AND label IN ('Saved','Earlier version') AND revision NOT IN (SELECT revision FROM project_versions WHERE project_id=? ORDER BY revision DESC LIMIT 200)", (project_id, project_id))
             db.execute("UPDATE projects SET name=?,revision=?,payload=?,updated=? WHERE id=?",
                 (project["name"], project["revision"], json.dumps(project, ensure_ascii=False), project["updatedAt"], project_id))
         return project
+
+    def versions(self, project_id):
+        project = self.get(project_id)
+        with self.connection() as db:
+            self._version(db, project, "Local workspace", "Current version")
+            return [dict(row) for row in db.execute("SELECT revision,created,actor,label FROM project_versions WHERE project_id=? ORDER BY revision DESC", (project_id,))]
+
+    def version(self, project_id, revision):
+        self.get(project_id)
+        with self.connection() as db:
+            row = db.execute("SELECT payload FROM project_versions WHERE project_id=? AND revision=?", (project_id, revision)).fetchone()
+        if not row:
+            raise KeyError("Saved version not found.")
+        return normalize_project(json.loads(row[0]))
+
+    def restore(self, project_id, payload, actor):
+        old = self.version(project_id, payload.get("version"))
+        fields = ("name", "segments", "sourceId", "cueOffsetMs", "style", "musicId", "reviewed")
+        return self.save(project_id, {**{key: old[key] for key in fields if key in old},
+            "revision": payload.get("revision")}, actor, "Restored version")
+
+    def recover(self, project_id, draft, actor):
+        old = self.get(project_id)
+        if not isinstance(draft, dict):
+            raise ValidationError("Choose a saved local draft.")
+        checked = normalize_project(draft)
+        project = self.create(checked["name"] + " · recovered", checked["segments"], old.get("sourceId"),
+            reference=old.get("reference"))
+        project.update(style=checked["style"], cueOffsetMs=checked["cueOffsetMs"], musicId=old.get("musicId"),
+            workflowMode=checked["workflowMode"])
+        return self.save(project["id"], project, actor, "Recovered draft")
 
     def media(self, media_id):
         with self.connection() as db:

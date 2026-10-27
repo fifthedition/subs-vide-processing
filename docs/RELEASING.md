@@ -21,11 +21,11 @@ After the code is reviewed, CI passes, and changes are merged to `main`, create 
 ```sh
 git switch main
 git pull --ff-only
-git tag v0.6.2
-git push origin v0.6.2
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
-**Publish Docker image** verifies the commit belongs to main and publishes `0.6.2`, `latest`, and a commit SHA tag. Do not tag an unreviewed feature branch. A manual workflow run publishes a SHA tag; a version tag creates the version used in Compose. The workflow does not deploy to the NAS or change its reverse proxy.
+**Publish Docker image** verifies the commit belongs to main and publishes `0.7.0`, `latest`, and a commit SHA tag. Do not tag an unreviewed feature branch. A manual workflow run publishes a SHA tag; a version tag creates the version used in Compose. The workflow does not deploy to the NAS or change its reverse proxy.
 
 The image uses explicit source-file copies plus a Docker build-context allowlist. It contains code and the licensed font. Private archives, databases, uploaded music, exports, service credentials, worker tokens and configuration are excluded. Public examples are synthetic.
 
@@ -36,3 +36,5 @@ Release 0.6.0 adds independent microphone check, durable browser narration with 
 Release 0.6.1 handles TERM/INT, drains HTTP requests, cancels queued background tasks and bounds NAS cleanup to 20 seconds. CI verifies normal Docker stop/restart with/without init and idle sockets, retaining a synthetic owner/project. Renderer compatibility stays 0.6.0; no worker or queue migration is needed from 0.6.0. This hardening does not establish or fix a Synology UI/runtime cause when stop requests are not delivered.
 
 Release 0.6.2 stabilizes narration preview while WAV metadata, play promises or network seeks are pending. Volume changes and session polls no longer force seeks. A direct Play preview control starts both tracks from the user gesture; blocked playback pauses the music and shows a persistent translated message in the studio. Decode/network failures are visible there too. Renderer compatibility stays 0.6.0; no data, worker or queue migration is needed. Actual Firefox playback remains an on-device acceptance check.
+
+Release 0.7.0 applies the design research to Script/Narration/Exports views, clearer SVG controls, comfortable/compact bilingual editing, per-cue review and ready handoff, subtitle version history and private browser drafts, favorites/archive, complete export history, direct take audition, preview mute/solo, range timelines/looping, count-in/lead-in, enhanced alignment helpers and owner storage information. History tables and project metadata are additive; no media is deleted. Existing 0.6.0 workers and queues remain compatible. Recording still requires a completed guide; the browser-only pre-render recording proposal is excluded. Verify a short real microphone/preview session after updating the NAS before a long recording.

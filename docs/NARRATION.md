@@ -18,7 +18,7 @@ The test WAV stays in the current browser unless downloaded. Closing the mic-che
 4. Check the microphone. Set a start/end time or choose a subtitle range from the rendered snapshot. Record the selected range.
 5. **Pause and save take** stops both recording and video and saves that take. **Resume from playhead** continues from the current video position within the chosen range.
 6. To replace speech, choose an earlier range and record again. Only the newly covered interval is replaced; the rest of the old recording stays in place. **Undo last recording** restores up to 20 timeline edits. Original take files are retained.
-7. Prepare the full-length narration WAV. Download the ready master, with its WAV version in the filename.
+7. Use **Play last take / Vypočuť poslednú nahrávku** to check the saved voice immediately. Each recorded range also has a Listen action. Prepare the full-length WAV when ready for Adobe processing, then download the master with its version in the filename.
 
 The WAV master is **48 kHz, 24-bit mono**, with silence in all unrecorded areas and the same timeline length as the guide. Capture uses the browser's native audio clock (often 44.1 or 48 kHz); the NAS resamples to 48 kHz if necessary. File precision cannot create detail absent from the microphone/hardware.
 
@@ -51,3 +51,5 @@ Use current desktop Chrome, Safari or Firefox on macOS over the existing HTTPS h
 
 Automated tests cover audio-thread PCM output, mocked device/permission/rate fallbacks, IndexedDB persistence, recording transport/recovery, pauses and final mixing. They do not substitute for testing the actual microphone and real-time playback in each browser. Before a full session, record a short take, pause/resume, replace a range, download it and verify the complete enhanced/final path. Physical-microphone tests in the three browsers and a full-length recording remain deployment checks.
 
+
+See [workspace controls](WORKSPACE.md) for count-in/lead-in, timeline/range playback, preview mute/solo, alignment helpers and subtitle recovery.

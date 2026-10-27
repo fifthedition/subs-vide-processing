@@ -233,6 +233,44 @@ class HTTPWorkerTests(unittest.TestCase):
             data = response.read()
             return response, json.loads(data) if response.headers.get_content_type() == "application/json" else data
 
+    def test_workspace_history_review_recovery_and_owner_storage_boundaries(self):
+        project = self.app.store.create("Private workspace", [{"id": "cue", "startMs": 0, "endMs": 1000, "text": "Original words"}])
+        path = "/api/projects/" + project["id"]
+        self.request("/api/admin/users", {"username": "editor", "password": "editor-example-password"})
+        response, editor = self.request("/api/auth/login", {"username": "editor", "password": "editor-example-password"})
+        editor_cookie = response.headers["Set-Cookie"].split(";")[0]
+        headers = {"Cookie": editor_cookie, "X-CSRF-Token": editor["csrf"]}
+        for route in (path + "/versions", path + "/narrations", "/api/admin/storage"):
+            with self.assertRaises(HTTPError) as error:
+                self.request(route, headers={"Cookie": ""})
+            self.assertEqual(error.exception.code, 401)
+        with self.assertRaises(HTTPError) as error:
+            self.request("/api/admin/storage", headers=headers)
+        self.assertEqual(error.exception.code, 403)
+        with self.assertRaises(HTTPError) as error:
+            self.request(path + "/ready", {"revision": 1}, headers={**headers, "X-CSRF-Token": "wrong"})
+        self.assertEqual(error.exception.code, 403)
+        self.app.store.save(project["id"], {**project, "reviewed": ["cue"]}, "editor")
+        response, ready = self.request(path + "/ready", {"revision": 2}, headers=headers)
+        self.assertTrue(ready["scriptReady"])
+        response, versions = self.request(path + "/versions", headers=headers)
+        self.assertEqual(versions[0]["actor"], "editor")
+        response, original = self.request(path + "/versions/1", headers=headers)
+        self.assertEqual(original["segments"][0]["text"], "Original words")
+        draft = {**ready, "segments": [{**ready["segments"][0], "text": "Recovered local words"}]}
+        response, recovered = self.request(path + "/recover", {"draft": draft}, headers=headers)
+        self.assertNotEqual(recovered["id"], ready["id"])
+        self.assertEqual(self.app.store.get(ready["id"])["segments"][0]["text"], "Original words")
+        response, restored = self.request(path + "/restore", {"version": 1, "revision": ready["revision"]}, headers=headers)
+        self.assertGreater(restored["revision"], ready["revision"])
+        response, report = self.request("/api/admin/storage")
+        self.assertIn("freeBytes", report)
+        for asset in ("workspace.js", "studio-tools.js", "timeline.js", "icons.js"):
+            response, script = self.request("/" + asset, headers=headers)
+            self.assertTrue(script)
+        response, project_with_state = self.request(path, headers=headers)
+        self.assertEqual(project_with_state["narrations"], [])
+
     def test_http_auth_role_csrf_and_renderer_scope(self):
         for route in ("/favicon.svg", "/favicon.ico", "/i18n.js", "/login"):
             response, content = self.request(route, headers={"Cookie": ""})

@@ -157,6 +157,14 @@ class Narration:
         return [self.take(t["id"], owner) for t in takes if t["status"] in ("recording", "finishing") and
                 (session_id is None or t["sessionId"] == session_id)]
 
+    def list(self, project_id):
+        with self.store.connection() as db:
+            sessions = [json.loads(row[0]) for row in db.execute("SELECT payload FROM narrations")]
+        return [{"id": s["id"], "guideJobId": s["guideJobId"], "timelineRevision": s["timelineRevision"],
+            "hasVoice": bool(s["clips"]), "masterReady": self.master_state(s)["status"] == "ready",
+            "enhancedIsCurrent": bool(s.get("enhancedMediaId") and s.get("enhancedTimelineRevision") == s["timelineRevision"]),
+            "alignmentConfirmed": s["alignmentConfirmed"]} for s in sessions if s["projectId"] == project_id]
+
     def take(self, identifier, owner):
         with self.store.connection() as db:
             take = self._take(db, identifier, owner)
@@ -281,6 +289,7 @@ class Narration:
             session["clips"] = replace_range(session["clips"],
                 {"mediaId": identifier, "startFrame": first, "endFrame": last, "sourceFrame": 0})
             session["lastPositionMs"] = round(last * 1000 / RATE)
+            session["lastTakeId"] = identifier
             self._put(db, session)
             take.update(status="complete", bytes=count, placedStartMs=start)
             self._put_take(db, take)
