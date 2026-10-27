@@ -31,15 +31,18 @@ jobs:
       - run: npm ci --ignore-scripts && npm test
       - name: Build the public image
         run: docker build -t breathwork-ci .
-      - name: Check first boot and private default
+      - name: Check first boot, private default, shutdown and restart
         run: |
-          docker run -d --name studio-ci --read-only --tmpfs /tmp:size=512m --cap-drop ALL --security-opt no-new-privileges:true -v studio-ci-data:/data -e STUDIO_PUBLIC_URL=https://studio.example -p 127.0.0.1:8789:8787 breathwork-ci
+          docker run -d --init --name studio-ci --read-only --tmpfs /tmp:size=512m --cap-drop ALL --security-opt no-new-privileges:true -v studio-ci-data:/data -e STUDIO_PUBLIC_URL=https://studio.example -p 127.0.0.1:8789:8787 breathwork-ci
           python tests/container_smoke.py
       - name: Container diagnostics
         if: failure()
-        run: docker logs studio-ci || true
+        run: |
+          docker logs studio-ci || true
+          docker logs studio-no-init || true
       - name: Clean up
         if: always()
         run: |
           docker rm -f studio-ci || true
+          docker rm -f studio-no-init || true
           docker volume rm studio-ci-data || true

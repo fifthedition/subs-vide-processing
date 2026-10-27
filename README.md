@@ -10,6 +10,7 @@ The NAS hosts the editor and stores projects, audio, exports and the persistent 
 - [Publish the public Docker image](docs/RELEASING.md)
 - [Architecture, recovery and access controls](docs/ARCHITECTURE.md)
 - [Verification and remaining deployment checks](VERIFICATION.md)
+- [Clean shutdown and Synology stop troubleshooting](docs/SHUTDOWN.md)
 
 ## Local editing
 
@@ -56,6 +57,6 @@ npm ci --ignore-scripts
 npm test
 ```
 
-CI runs the suite, builds the Linux image and checks its startup/authentication defaults. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
+CI runs the suite, builds the Linux image and checks startup/authentication, SIGTERM shutdown with/without Docker init, idle connections, and restart persistence. A private archive regression runs only when `STUDIO_CATALOG` points to that archive. Synthetic archive tests run publicly.
 
-App and renderer compatibility version: **0.6.0**, protocol 1. Update both the NAS image and Mac checkout for the narration and final-mix jobs; the existing Keychain pairing stays valid. Drain old queued exports before updating, or cancel and send them again afterward. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.
+App version: **0.6.1**. Renderer compatibility: **0.6.0**, protocol 1. This patch adds handled/bounded NAS shutdown and lifecycle verification; existing 0.6.0 workers and queued jobs remain compatible. When upgrading from 0.5.x, update the Mac checkout for narration/final-mix jobs and drain or cancel/resubmit old queued exports. The existing Keychain pairing stays valid. The open Inter font is included with its OFL license in `static/assets/Inter-OFL.txt`. Node/jsdom are development test dependencies only; the NAS and Mac renderer do not require Node.

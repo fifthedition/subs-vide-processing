@@ -1,15 +1,21 @@
-# Verification — 0.6.0
+# Verification — 0.6.1
 
 Local checks use macOS, Python 3.14, Pillow 13, FFmpeg/ffprobe and Node. GitHub Actions repeats the suite on Linux, builds the public image, and checks first boot and authenticated empty defaults. CI results are recorded in the pull request.
 
 ## Results
 
-- 37 Python tests, with the optional private archive regression skipped when its archive is absent.
+- 42 Python tests, with the optional private archive regression skipped when its archive is absent.
 - 13 JavaScript DOM/audio-worklet/storage tests.
 - JavaScript/Python syntax and Git diff checks.
 - All fixtures are synthetic and isolated from the actual NAS and Keychain.
 
 The original import/editing, account/CSRF/role, provider mocks, resumable upload, immutable queue/recovery and guide-render checks remain in place. No paid provider request is made.
+
+## Shutdown
+
+Five new process-level tests exercise TERM/INT exit 0, idle sockets, in-flight request completion and 503 for late admission, cancellation of pending work across all three pools, and a logged non-zero deadline for a deliberately stalled task followed by restart with the project retained. All use synthetic data in isolated temporary directories.
+
+The Docker smoke test runs the actual entry point, asserts SIGTERM exits 0 before Docker's forced-kill deadline, restarts and signs in to the existing synthetic owner/project, tests incomplete headers, and repeats stop with Python as PID 1 without Docker init. CI uses init for the primary container to match NAS Compose. These checks do not reproduce or prove a Synology management-interface defect.
 
 ## Narration
 
@@ -33,6 +39,6 @@ The implementation uses standard APIs available in current desktop Chrome, Safar
 
 DOM/worklet fixtures exercise the application code; physical microphone permissions, browser real-time clocks, hardware playback and the visual layout need an actual-device check in each browser. No hour-long microphone benchmark or live Adobe processing was performed.
 
-Update NAS and Mac code together to **0.6.0**. Retain the current private data volume and existing renderer pairing. Completed Full HD guides remain usable; older queued jobs must be cancelled/resubmitted after upgrading (or drained before the upgrade). First verify a short take, pause/resume, a replacement range, WAV download, enhanced upload and final mix; then test a complete session.
+App **0.6.1** retains renderer compatibility **0.6.0**. Existing 0.6.0 workers, pairing and queued jobs remain valid. When upgrading from 0.5.x, update the Mac checkout and drain or cancel/resubmit old queued jobs. Retain the private data volume. Completed Full HD guides remain usable. First verify a short take, pause/resume, a replacement range, WAV download, enhanced upload and final mix; then test a complete session. Verify the handled stop in Container Manager on the actual NAS too.
 
 The public image uses explicit code/static copies and the existing context allowlist. Original subtitles, databases, microphone audio, masters, enhanced files, exports, API keys and worker credentials are runtime private data, never image or source contents. Automated tests do not alter the deployed NAS, proxy or user Keychain.

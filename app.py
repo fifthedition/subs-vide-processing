@@ -24,12 +24,14 @@ from uploads import Uploads
 from narration import Narration
 from mixing import render_mix
 from export_queue import file_hash
+from lifecycle import Requests, Stopping, serve
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 
 class Application:
     def __init__(self, directory, remote=False, public_url=None):
+        self.requests = Requests()
         self.store = Store(directory)
         self.remote = remote
         self.public_url = (public_url or "").rstrip("/")
@@ -205,6 +207,13 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
     def guarded(self, action):
+        try:
+            with self.application.requests.active():
+                self._guarded(action)
+        except Stopping:
+            self.send_json({"error": "The studio is shutting down. Please try again shortly."}, 503)
+
+    def _guarded(self, action):
         try:
             route = urlsplit(self.path).path
             remote = self.application.remote
@@ -407,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(media, 201)
             def waveform():
                 subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(target), "-filter_complex", "aformat=channel_layouts=mono,aresample=2000,showwavespic=s=1600x100:colors=0x72a99d", "-frames:v", "1", str(target.with_name(media_id + "-waveform.png"))], capture_output=True, timeout=180)
-            threading.Thread(target=waveform, daemon=True).start()
+            self.application.executor.submit(waveform)
             return
         payload = self.read_json()
         if route == "/api/narration/open":
@@ -567,16 +576,12 @@ def main():
         print("First-time setup code: " + (options.data / "setup-code").read_text().strip(), flush=True)
     if options.open:
         import webbrowser
-        threading.Timer(.5, lambda: webbrowser.open(f"http://127.0.0.1:{options.port}")).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        application.executor.shutdown(wait=False, cancel_futures=True)
-        application.drafts.executor.shutdown(wait=False, cancel_futures=True)
-        application.narration.executor.shutdown(wait=False, cancel_futures=True)
+        browser = threading.Timer(.5, lambda: webbrowser.open(f"http://127.0.0.1:{options.port}"))
+        browser.daemon = True
+        browser.start()
+    serve(server, application.requests,
+        (application.executor, application.drafts.executor, application.narration.executor),
+        shutdown_timeout=20 if application.remote else None)
 
 
 if __name__ == "__main__":

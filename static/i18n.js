@@ -597,7 +597,8 @@ const I18n = (() => {
   "Guide video version": "Verzia videa pre nahrávanie",
   "Rendered revision {revision}": "Verzia videa {revision}",
   "Discard unsaved mix settings and switch guide videos?": "Zahodiť neuložené nastavenia mixu a prepnúť na iné video?",
-  "Choose an existing narration WAV version.": "Vyberte existujúcu verziu hlasového WAV."
+  "Choose an existing narration WAV version.": "Vyberte existujúcu verziu hlasového WAV.",
+  "The studio is shutting down. Please try again shortly.": "Štúdio sa vypína. O chvíľu to skúste znova."
 });
   let language = 'sk';
   try { if (localStorage.getItem('breathwork-language') === 'en') language = 'en'; } catch {}
