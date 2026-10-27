@@ -27,6 +27,7 @@ def render_mix(guide, voice, destination, settings, progress=lambda value, stage
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mix-", dir=destination.parent) as temporary:
         work = Path(temporary)
+        audio = work / "mixed.m4a"
         partial = work / "output.mp4"
         timing = ("atrim=start=" + f"{-offset/1000:.6f}," if offset < 0 else "") + "asetpts=PTS-STARTPTS"
         if offset > 0:
@@ -38,32 +39,37 @@ def render_mix(guide, voice, destination, settings, progress=lambda value, stage
                    f"volume={voice_level:.8f},apad,atrim=duration={duration/1000:.6f}[voice];"
                    "[music][voice]amix=inputs=2:duration=first:normalize=0,"
                    "alimiter=limit=0.95:level=0:latency=1[audio]")
-        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(Path(guide).resolve()),
-                   "-i", str(Path(voice).resolve()), "-filter_complex", filters, "-map", "0:v:0", "-map", "[audio]",
-                   "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2",
-                   "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(partial)]
-        # Bound both audio branches in the graph. A global -t with copied video
-        # can stop filtered audio at video EOF on older FFmpeg versions, even
-        # when the guide's music continues beyond its last video packet.
+        # Mix audio before muxing: older FFmpeg versions can stop a filter graph
+        # when a copied video stream reaches EOF, truncating a longer music tail.
+        # The second pass copies both encoded streams without another encode.
+        common = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+        commands = [
+            (common + ["-i", str(Path(guide).resolve()), "-i", str(Path(voice).resolve()),
+                "-filter_complex", filters, "-map", "[audio]", "-vn", "-c:a", "aac", "-b:a", "320k",
+                "-ar", "48000", "-ac", "2", "-progress", "pipe:1", "-nostats", str(audio)], 2, 93),
+            (common + ["-i", str(Path(guide).resolve()), "-i", str(audio), "-map", "0:v:0", "-map", "1:a:0",
+                "-c", "copy", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(partial)], 95, 4),
+        ]
         progress(2, "Mixing enhanced narration with stereo music")
-        with (work / "error.log").open("w+") as errors:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors, text=True)
-            try:
-                for line in process.stdout:
-                    if line.startswith("out_time_us="):
-                        try:
-                            progress(min(99, 2 + 97 * int(line.split("=", 1)[1]) / (duration * 1000)), "Mixing enhanced narration with stereo music")
-                        except ValueError:
-                            pass
-                code = process.wait()
-            except BaseException:
-                process.terminate(); process.wait()
-                raise
-            finally:
-                process.stdout.close()
-            if code:
-                errors.seek(0)
-                raise ValidationError("Final audio mix failed: " + errors.read()[-1200:])
+        for command, minimum, span in commands:
+            with (work / "error.log").open("w+") as errors:
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors, text=True)
+                try:
+                    for line in process.stdout:
+                        if line.startswith("out_time_us="):
+                            try:
+                                progress(min(99, minimum + span * int(line.split("=", 1)[1]) / (duration * 1000)), "Mixing enhanced narration with stereo music")
+                            except ValueError:
+                                pass
+                    code = process.wait()
+                except BaseException:
+                    process.terminate(); process.wait()
+                    raise
+                finally:
+                    process.stdout.close()
+                if code:
+                    errors.seek(0)
+                    raise ValidationError("Final audio mix failed: " + errors.read()[-1200:])
         shutil.move(str(partial), destination)
     progress(100, "Complete")
     return {"durationMs": duration, "bytes": destination.stat().st_size}
